@@ -32,4 +32,12 @@ protected:
     virtual void Reload(const TString& message, const NActors::TActorContext& ctx) = 0;
 };
 
+#define VERIFY(expr, details, ctx)                            \
+    do {                                                      \
+        if (Y_UNLIKELY(!(expr))) {                            \
+            Reload(TStringBuilder() << details, ctx);                             \
+            return ::NKikimr::EVerificationStatus::Reloaded;  \
+        }                                                     \
+    } while (false)
+
 } // namespace NKikimr

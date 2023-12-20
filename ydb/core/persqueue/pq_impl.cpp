@@ -667,14 +667,11 @@ EVerificationStatus TPersQueue::ApplyNewConfigAndReply(const TActorContext& ctx)
         }
     }
     for (const auto& partition : Config.GetPartitions()) {
-        if (!Verify(was.contains(partition.GetPartitionId()), TStringBuilder() << "New config is bad, missing partition " << partition.GetPartitionId() << ". #PQ02R", ctx)) {
-            return EVerificationStatus::Reloaded;
-        }
+        Cerr << ">>>>> partition.GetPartitionId()=" << partition.GetPartitionId() << ", was.contains(partition.GetPartitionId())=" << was.contains(partition.GetPartitionId()) << Endl;
+        VERIFY(was.contains(partition.GetPartitionId()), "New config is bad, missing partition " << partition.GetPartitionId() << ". #PQ02R", ctx);
     }
 
-    if (!Verify(ConfigInited && PartitionsInited == Partitions.size(), "in order to answer only after all parts are ready to work. #PQ01R", ctx)) {
-        return EVerificationStatus::Reloaded;
-    }
+    VERIFY(ConfigInited && PartitionsInited == Partitions.size(), "in order to answer only after all parts are ready to work. #PQ01R", ctx);
 
     if (!ApplyNewConfig(NewConfig, ctx)) {
         return EVerificationStatus::Reloaded;
@@ -736,9 +733,7 @@ EVerificationStatus TPersQueue::ApplyNewConfig(const NKikimrPQ::TPQTabletConfig&
             KeySchema.push_back(typeInfoMod.TypeInfo);
         }
 
-        if (!Verify(TopicName.size(), "Need topic name here. #PQ03R", ctx)) {
-            return EVerificationStatus::Reloaded;
-        }
+        VERIFY(TopicName.size(), "Need topic name here. #PQ03R", ctx);
         ctx.Send(CacheActor, new TEvPQ::TEvChangeCacheConfig(TopicName, cacheSize));
     } else {
         TopicPath = Config.GetTopicPath();
