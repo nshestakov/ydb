@@ -3,6 +3,7 @@
 #include "percentile_counter.h"
 #include "metering_sink.h"
 #include "transaction.h"
+#include "reloadable.h"
 
 #include <ydb/core/keyvalue/keyvalue_flat_impl.h>
 #include <ydb/core/tablet/tablet_counters.h>
@@ -28,7 +29,7 @@ struct TTransaction;
 
 //USES MAIN chanel for big blobs, INLINE or EXTRA for ZK-like load, EXTRA2 for small blob for logging (VDISK of type LOG is ok with EXTRA2)
 
-class TPersQueue : public NKeyValue::TKeyValueFlat {
+class TPersQueue : public NKeyValue::TKeyValueFlat, public TReloadable {
     enum ECookie : ui64 {
         WRITE_CONFIG_COOKIE = 2,
         READ_CONFIG_COOKIE  = 3,
@@ -95,15 +96,15 @@ class TPersQueue : public NKeyValue::TKeyValueFlat {
 
     //response from KV on READ or WRITE config request
     void Handle(TEvKeyValue::TEvResponse::TPtr& ev, const TActorContext& ctx);
-    void HandleConfigReadResponse(const NKikimrClient::TResponse& resp, const TActorContext& ctx);
-    void ApplyNewConfigAndReply(const TActorContext& ctx);
-    void ApplyNewConfig(const NKikimrPQ::TPQTabletConfig& newConfig,
+    [[nodiscard]] EVerificationStatus HandleConfigReadResponse(const NKikimrClient::TResponse& resp, const TActorContext& ctx);
+    [[nodiscard]] EVerificationStatus ApplyNewConfigAndReply(const TActorContext& ctx);
+    [[nodiscard]] EVerificationStatus ApplyNewConfig(const NKikimrPQ::TPQTabletConfig& newConfig,
                         const TActorContext& ctx);
     void HandleStateWriteResponse(const NKikimrClient::TResponse& resp, const TActorContext& ctx);
 
     void ReadTxInfo(const NKikimrClient::TKeyValueResponse::TReadResult& read,
                     const TActorContext& ctx);
-    void ReadConfig(const NKikimrClient::TKeyValueResponse::TReadResult& read,
+    [[nodiscard]] EVerificationStatus ReadConfig(const NKikimrClient::TKeyValueResponse::TReadResult& read,
                     const NKikimrClient::TKeyValueResponse::TReadRangeResult& readRange,
                     const TActorContext& ctx);
     void ReadState(const NKikimrClient::TKeyValueResponse::TReadResult& read, const TActorContext& ctx);
@@ -175,6 +176,8 @@ class TPersQueue : public NKeyValue::TKeyValueFlat {
     static constexpr const char * KeyTxInfo() { return "_txinfo"; }
 
     static NTabletPipe::TClientConfig GetPipeClientConfig();
+
+    void Reload(const TString& message, const TActorContext& ctx) override;
 
 public:
     static constexpr NKikimrServices::TActivity::EType ActorActivityType() {
@@ -274,13 +277,13 @@ private:
 
     bool SubDomainOutOfSpace = false;
 
-    void BeginWriteTxs(const TActorContext& ctx);
-    void EndWriteTxs(const NKikimrClient::TResponse& resp,
-                     const TActorContext& ctx);
-    void TryWriteTxs(const TActorContext& ctx);
+    [[nodiscard]] EVerificationStatus BeginWriteTxs(const TActorContext& ctx);
+    [[nodiscard]] EVerificationStatus EndWriteTxs(const NKikimrClient::TResponse& resp,
+                                                  const TActorContext& ctx);
+    [[nodiscard]] EVerificationStatus TryWriteTxs(const TActorContext& ctx);
 
-    void ProcessProposeTransactionQueue(const TActorContext& ctx);
-    void ProcessPlanStepQueue(const TActorContext& ctx);
+    [[nodiscard]] EVerificationStatus ProcessProposeTransactionQueue(const TActorContext& ctx);
+    [[nodiscard]] EVerificationStatus ProcessPlanStepQueue(const TActorContext& ctx);
     void ProcessWriteTxs(const TActorContext& ctx,
                          NKikimrClient::TKeyValueRequest& request);
     void ProcessDeleteTxs(const TActorContext& ctx,
@@ -307,14 +310,14 @@ private:
     TDistributedTransaction* GetTransaction(const TActorContext& ctx,
                                             ui64 txId);
 
-    void CheckTxState(const TActorContext& ctx,
-                      TDistributedTransaction& tx);
+    [[nodiscard]] EVerificationStatus CheckTxState(const TActorContext& ctx,
+                                    TDistributedTransaction& tx);
 
     void WriteTx(TDistributedTransaction& tx, NKikimrPQ::TTransaction::EState state);
     void DeleteTx(TDistributedTransaction& tx);
 
     void SendReplies(const TActorContext& ctx);
-    void CheckChangedTxStates(const TActorContext& ctx);
+    [[nodiscard]] EVerificationStatus CheckChangedTxStates(const TActorContext& ctx);
 
     bool AllTransactionsHaveBeenProcessed() const;
 
@@ -327,9 +330,9 @@ private:
                                      const TActorContext& ctx);
 
     void Handle(TEvPQ::TEvProposePartitionConfigResult::TPtr& ev, const TActorContext& ctx);
-    void HandleDataTransaction(TAutoPtr<TEvPersQueue::TEvProposeTransaction> event,
+    [[nodiscard]] EVerificationStatus HandleDataTransaction(TAutoPtr<TEvPersQueue::TEvProposeTransaction> event,
                                const TActorContext& ctx);
-    void HandleConfigTransaction(TAutoPtr<TEvPersQueue::TEvProposeTransaction> event,
+    [[nodiscard]] EVerificationStatus HandleConfigTransaction(TAutoPtr<TEvPersQueue::TEvProposeTransaction> event,
                                  const TActorContext& ctx);
 
     void SendEvProposePartitionConfig(const TActorContext& ctx,
@@ -364,8 +367,8 @@ private:
 
     void InitTransactions(const NKikimrClient::TKeyValueResponse::TReadRangeResult& readRange,
                           THashMap<ui32, TVector<TTransaction>>& partitionTxs);
-    void TryStartTransaction(const TActorContext& ctx);
-    void OnInitComplete(const TActorContext& ctx);
+    [[nodiscard]] EVerificationStatus TryStartTransaction(const TActorContext& ctx);
+    [[nodiscard]] EVerificationStatus OnInitComplete(const TActorContext& ctx);
 
     void RestartPipe(ui64 tabletId, const TActorContext& ctx);
 
@@ -375,8 +378,8 @@ private:
 
     THashMap<ui64, THashSet<ui64>> BindedTxs;
 
-    void InitProcessingParams(const TActorContext& ctx);
-    void InitMediatorTimeCast(const TActorContext& ctx);
+    [[nodiscard]] EVerificationStatus InitProcessingParams(const TActorContext& ctx);
+    [[nodiscard]] EVerificationStatus InitMediatorTimeCast(const TActorContext& ctx);
 
     TMaybe<NKikimrSubDomains::TProcessingParams> ProcessingParams;
 
@@ -392,7 +395,7 @@ private:
 
     TIntrusivePtr<TMediatorTimecastEntry> MediatorTimeCastEntry;
 
-    void DeleteExpiredTransactions(const TActorContext& ctx);
+    [[nodiscard]] EVerificationStatus DeleteExpiredTransactions(const TActorContext& ctx);
     void Handle(TEvPersQueue::TEvCancelTransactionProposal::TPtr& ev, const TActorContext& ctx);
 
     bool CanProcessProposeTransactionQueue() const;
