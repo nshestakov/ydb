@@ -62,6 +62,20 @@ void TSrcIdMetaInitializer::DoPrepare(NInitializer::IInitializerInput::TPtr cont
         result.emplace_back(new NInitializer::TGenericTableModifier<NRequest::TDialogCreateTable>(request, "create"));
     }
     result.emplace_back(NInitializer::TACLModifierConstructor::GetReadOnlyModifier(tablePath, "acl"));
+    {
+        Ydb::Table::AlterTableRequest request;
+        request.set_session_id("");
+        request.set_path(tablePath);
+
+        {
+            auto& column = *request.add_add_columns();
+            column.set_name("SeqNo");
+            column.mutable_type()->mutable_optional_type()->mutable_item()->set_type_id(Ydb::Type::UINT64);
+        }
+
+        result.emplace_back(new NInitializer::TGenericTableModifier<NRequest::TDialogCreateTable>(request, "add_column_SeqNo"));
+    }
+
     controller->OnPreparationFinished(result);
 }
 
