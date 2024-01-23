@@ -467,8 +467,8 @@ template<bool UseMigrationProtocol>
 void TWriteSessionActor<UseMigrationProtocol>::InitAfterDiscovery(const TActorContext& ctx) {
     Y_UNUSED(ctx);
 
-    if (SourceId.empty()) {
-        Y_ABORT_UNLESS(!UseDeduplication);
+    if (SourceId.empty() && UseDeduplication) {
+        return CloseSession("Internal error #WSA08", PersQueue::ErrorCode::ERROR, ctx);
     }
 
     InitMeta = GetInitialDataChunk(InitRequest, FullConverter->GetClientsideName(), PeerName); // ToDo[migration] - check?
@@ -548,7 +548,9 @@ void TWriteSessionActor<UseMigrationProtocol>::InitCheckSchema(const TActorConte
 template<bool UseMigrationProtocol>
 void TWriteSessionActor<UseMigrationProtocol>::Handle(TEvDescribeTopicsResponse::TPtr& ev, const TActorContext& ctx) {
     auto& res = ev->Get()->Result;
-    Y_ABORT_UNLESS(res->ResultSet.size() == 1);
+    if (res->ResultSet.size() != 1) {
+        return CloseSession("Internal error #WSA01", PersQueue::ErrorCode::ERROR, ctx);
+    }
 
     auto& entry = res->ResultSet[0];
     TString errorReason;
@@ -557,10 +559,16 @@ void TWriteSessionActor<UseMigrationProtocol>::Handle(TEvDescribeTopicsResponse:
         CloseSession(processResult.Reason, processResult.ErrorCode, ctx);
         return;
     }
-    Y_ABORT_UNLESS(entry.PQGroupInfo); // checked at ProcessMetaCacheTopicResponse()
+    if (!entry.PQGroupInfo) {
+        return CloseSession("Internal error #WSA02", PersQueue::ErrorCode::ERROR, ctx);
+    }
     Config = std::move(entry.PQGroupInfo->Description);
-    Y_ABORT_UNLESS(Config.PartitionsSize() > 0);
-    Y_ABORT_UNLESS(Config.HasPQTabletConfig());
+    if (!Config.PartitionsSize()) {
+        return CloseSession("Internal error #WSA03", PersQueue::ErrorCode::ERROR, ctx);
+    }
+    if (!Config.HasPQTabletConfig()) {
+        return CloseSession("Internal error #WSA04", PersQueue::ErrorCode::ERROR, ctx);
+    }
     InitialPQTabletConfig = Config.GetPQTabletConfig();
     if (!DiscoveryConverter->IsValid()) {
         errorReason = Sprintf("Internal server error with topic '%s', Marker# PQ503", DiscoveryConverter->GetPrintableString().c_str());
@@ -586,7 +594,9 @@ void TWriteSessionActor<UseMigrationProtocol>::Handle(TEvDescribeTopicsResponse:
         SetupCounters();
     }
 
-    Y_ABORT_UNLESS(entry.SecurityObject);
+    if (!entry.SecurityObject) {
+        return CloseSession("Internal error #WSA05", PersQueue::ErrorCode::ERROR, ctx);
+    }
     ACL.Reset(new TAclWrapper(entry.SecurityObject));
     LOG_INFO_S(ctx, NKikimrServices::PQ_WRITE_PROXY, "session v1 cookie: " << Cookie << " sessionId: " << OwnerCookie << " describe result for acl check");
 
@@ -607,12 +617,16 @@ void TWriteSessionActor<UseMigrationProtocol>::Handle(TEvDescribeTopicsResponse:
         FirstACLCheck = false;
         DiscoverPartition(ctx);
     } else {
-        Y_ABORT_UNLESS(Request->GetYdbToken());
+        if (!Request->GetYdbToken()) {
+            return CloseSession("Internal error #WSA06", PersQueue::ErrorCode::ERROR, ctx);
+        }
         Auth = *Request->GetYdbToken();
         Token = new NACLib::TUserToken(Request->GetSerializedToken());
 
         if (FirstACLCheck && IsQuotaRequired()) {
-            Y_ABORT_UNLESS(MaybeRequestQuota(1, EWakeupTag::RlInit, ctx));
+            if (!MaybeRequestQuota(1, EWakeupTag::RlInit, ctx)) {
+                return CloseSession("Internal error #WSA07", PersQueue::ErrorCode::ERROR, ctx);
+            }
         } else {
             CheckACL(ctx);
         }

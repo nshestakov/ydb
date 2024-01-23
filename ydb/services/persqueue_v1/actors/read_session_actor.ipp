@@ -1807,7 +1807,9 @@ void TReadSessionActor<UseMigrationProtocol>::Handle(TEvPQProxy::TEvDirectReadRe
     if (const auto ru = CalcRuConsumption(PrepareResponse(formedResponse))) {
         formedResponse->RequiredQuota = ru;
         if (MaybeRequestQuota(ru, EWakeupTag::RlAllowed, ctx)) {
-            Y_ABORT_UNLESS(!PendingQuota);
+            if (PendingQuota) {
+                return CloseSession(PersQueue::ErrorCode::ERROR, "Internal error #RSA01", ctx);                
+            }
             PendingQuota = formedResponse;
         } else {
             WaitingQuota.push_back(formedResponse);
