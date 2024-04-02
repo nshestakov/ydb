@@ -337,8 +337,8 @@ class TPersQueueReadBalancer : public TActor<TPersQueueReadBalancer>, public TTa
         bool FirstRead = false;
         size_t Iteration = 0;
 
-        bool IsFinished() const { return Commited; };
-        bool Commit() { return std::exchange(Commited, true); };
+        bool IsFinished() const { return Commited || (ReadingFinished && (FirstRead || NewSDK)); };
+        bool Commit() { return !std::exchange(Commited, true); };
     };
     // the list of partitions where the consumer has read all the messages
     std::unordered_map<TString, std::unordered_map<ui32, ReadingStatus>> ReadingFinished;

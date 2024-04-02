@@ -1103,7 +1103,7 @@ bool TPersQueueReadBalancer::TClientInfo::IsReadeable(ui32 partitionId) const {
     auto& partitions = it->second;
     auto pit = partitions.find(partitionId);
     if (pit == partitions.end()) {
-        return false;
+        return node->Parents.empty();
     }
 
     auto& partition = pit->second;
@@ -1806,10 +1806,13 @@ void TPersQueueReadBalancer::Handle(TEvTxProxySchemeCache::TEvWatchNotifyUpdated
 }
 
 void TPersQueueReadBalancer::Handle(TEvPQ::TEvReadingPartitionStatusRequest::TPtr& ev, const TActorContext& ctx) {
+    Cerr << ">>>>> TEvReadingPartitionStatusRequest 0" << Endl;
+
     auto& r = ev->Get()->Record;
 
     auto& finishedPartitions = ReadingFinished[r.GetConsumer()];
     if (finishedPartitions[r.GetPartitionId()].Commit()) {
+        Cerr << ">>>>> TEvReadingPartitionStatusRequest 1" << Endl;
         auto it = ClientsInfo.find(r.GetConsumer());
         if (it != ClientsInfo.end()) {
             auto& clientInfo = it->second;
