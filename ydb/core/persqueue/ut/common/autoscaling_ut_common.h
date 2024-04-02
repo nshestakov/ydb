@@ -48,7 +48,7 @@ struct TTestReadSession {
     std::vector<MsgInfo> ReceivedMessages;
     std::set<size_t> Partitions;
 
-    TTestReadSession(TTopicClient& client, size_t expectedMessagesCount, bool autoCommit = true);
+    TTestReadSession(TTopicClient& client, size_t expectedDataMessagesCount, bool autoCommit = true);
 
     void WaitAllMessages();
 

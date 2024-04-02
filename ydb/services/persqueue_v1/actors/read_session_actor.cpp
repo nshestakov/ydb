@@ -1343,7 +1343,26 @@ void TReadSessionActor<UseMigrationProtocol>::Handle(TEvPQProxy::TEvUpdateSessio
     SendControlMessage(partitionInfo.Partition, std::move(result), ctx);
 }
 
+template <bool UseMigrationProtocol>
+void TReadSessionActor<UseMigrationProtocol>::Handle(TEvPQProxy::TEvReadingFinished::TPtr& ev, const TActorContext& ctx) {
+    bool newSDK = false; // TODO
 
+    auto* msg = ev->Get();
+
+    Cerr << ">>>>> TEvReadingFinished 0" << Endl;
+
+    auto it = Topics.find(msg->Topic);
+    if (it == Topics.end()) {
+        Cerr << ">>>>> TEvReadingFinished 1" << Endl;
+        // TODO SessionClose?
+        return;
+    }
+
+    auto& topic = it->second;
+
+    Cerr << ">>>>> TEvReadingFinished 2" << Endl;
+    NTabletPipe::SendData(ctx, topic.PipeClient, new TEvPersQueue::TEvReadingFinishedRequest(ClientId, msg->PartitionId, newSDK, msg->First));
+}
 
 template <bool UseMigrationProtocol>
 bool TReadSessionActor<UseMigrationProtocol>::SendControlMessage(TPartitionId id, TServerMessage&& message, const TActorContext& ctx) {

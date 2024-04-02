@@ -115,7 +115,8 @@ class TPersQueueReadBalancer : public TActor<TPersQueueReadBalancer>, public TTa
     void Handle(NSchemeShard::TEvSchemeShard::TEvSubDomainPathIdFound::TPtr& ev, const TActorContext& ctx);
     void Handle(TEvTxProxySchemeCache::TEvWatchNotifyUpdated::TPtr& ev, const TActorContext& ctx);
 
-    void Handle(TEvPQ::TEvReadingPartitionStatusRequest::TPtr& ev, const TActorContext& ctx);
+    void Handle(TEvPQ::TEvReadingPartitionStatusRequest::TPtr& ev, const TActorContext& ctx); // from Partition/PQ
+    void Handle(TEvPersQueue::TEvReadingFinishedRequest::TPtr& ev, const TActorContext& ctx); // from ReadSession
 
     TStringBuilder GetPrefix() const;
 
@@ -259,7 +260,7 @@ class TPersQueueReadBalancer : public TActor<TPersQueueReadBalancer>, public TTa
 
         void ScheduleBalance(const TActorContext& ctx);
         void Balance(const TActorContext& ctx);
-        
+
         void LockPartition(const TActorId pipe, TSessionInfo& sessionInfo, ui32 partition, const TActorContext& ctx);
         void ReleasePartition(const TActorId pipe, TSessionInfo& sessionInfo, const ui32 group, const ui32 count, const TActorContext& ctx);
         void ReleasePartition(const TActorId pipe, TSessionInfo& sessionInfo, const ui32 group, const std::set<ui32>& partitions, const TActorContext& ctx);
@@ -324,8 +325,23 @@ class TPersQueueReadBalancer : public TActor<TPersQueueReadBalancer>, public TTa
     };
 
     THashMap<TString, TClientInfo> ClientsInfo; //map from userId -> to info
+
+    struct ReadingStatus {
+        // Client had commited rad offset equals EndOffset of the partition
+        bool Commited = false;
+        // ReadSession reach EndOffset of the partition
+        bool ReadingFinished = false;
+        // ReadSession connected with new SDK with garantee of read order
+        bool NewSDK = false;
+        // ReadSession reach EndOffset of the partition by first request
+        bool FirstRead = false;
+        size_t Iteration = 0;
+
+        bool IsFinished() const { return Commited; };
+        bool Commit() { return std::exchange(Commited, true); };
+    };
     // the list of partitions where the consumer has read all the messages
-    std::unordered_map<TString, std::set<ui32>> ReadingFinished;
+    std::unordered_map<TString, std::unordered_map<ui32, ReadingStatus>> ReadingFinished;
 
     THashMap<TActorId, TPipeInfo> PipesInfo;
 

@@ -672,7 +672,7 @@ void TPersQueueReadBalancer::RequestTabletIfNeeded(const ui64 tabletId, const TA
                 AggregatedStats.Cookies[tabletId] = cookie;
             }
 
-            LOG_DEBUG(ctx, NKikimrServices::PERSQUEUE_READ_BALANCER, 
+            LOG_DEBUG(ctx, NKikimrServices::PERSQUEUE_READ_BALANCER,
                 TStringBuilder() << "Send TEvPersQueue::TEvStatus TabletId: " << tabletId << " Cookie: " << cookie);
             NTabletPipe::SendData(ctx, pipeClient, new TEvPersQueue::TEvStatus("", true), cookie);
         }
@@ -698,9 +698,8 @@ void TPersQueueReadBalancer::Handle(TEvPersQueue::TEvStatusResponse::TPtr& ev, c
     for (const auto& partRes : record.GetPartResult()) {
         for (const auto& consumer : partRes.GetConsumerResult()) {
             if (consumer.GetReadingFinished()) {
-                auto& finishedPartitions = ReadingFinished[consumer.GetConsumer()];
-                auto [v, i] = finishedPartitions.insert(partRes.GetPartition());
-                if (i) {
+                auto& partitions = ReadingFinished[consumer.GetConsumer()];
+                if (partitions[partRes.GetPartition()].Commit()) {
                     auto it = ClientsInfo.find(consumer.GetConsumer());
                     if (it != ClientsInfo.end() && it->second.ProccessReadingFinished(partRes.GetPartition())) {
                         consumersForBalance.insert(consumer.GetConsumer());
@@ -714,7 +713,7 @@ void TPersQueueReadBalancer::Handle(TEvPersQueue::TEvStatusResponse::TPtr& ev, c
         }
 
         AggregatedStats.AggrStats(partRes.GetPartition(), partRes.GetPartitionSize(), partRes.GetUsedReserveSize());
-        AggregatedStats.AggrStats(partRes.GetAvgWriteSpeedPerSec(), partRes.GetAvgWriteSpeedPerMin(), 
+        AggregatedStats.AggrStats(partRes.GetAvgWriteSpeedPerSec(), partRes.GetAvgWriteSpeedPerMin(),
             partRes.GetAvgWriteSpeedPerHour(), partRes.GetAvgWriteSpeedPerDay());
         AggregatedStats.Stats[partRes.GetPartition()].Counters = partRes.GetAggregatedCounters();
         AggregatedStats.Stats[partRes.GetPartition()].HasCounters = true;
@@ -821,7 +820,7 @@ void TPersQueueReadBalancer::CheckStat(const TActorContext& ctx) {
     AggregatedStats.Metrics = AggregatedStats.NewMetrics;
 
     TEvPersQueue::TEvPeriodicTopicStats* ev = GetStatsEvent();
-    LOG_DEBUG(ctx, NKikimrServices::PERSQUEUE_READ_BALANCER, 
+    LOG_DEBUG(ctx, NKikimrServices::PERSQUEUE_READ_BALANCER,
             TStringBuilder() << "Send TEvPeriodicTopicStats PathId: " << PathId
                              << " Generation: " << Generation
                              << " StatsReportRound: " << StatsReportRound
@@ -1037,8 +1036,13 @@ void TPersQueueReadBalancer::TClientGroupInfo::InactivatePartition(ui32 partitio
 }
 
 void TPersQueueReadBalancer::TClientGroupInfo::FreePartition(ui32 partitionId) {
+
+    Cerr << ">>>>> Group != TClientInfo::MAIN_GROUP = " << (Group != TClientInfo::MAIN_GROUP) << Endl;
     if (Group != TClientInfo::MAIN_GROUP || ClientInfo.IsReadeable(partitionId)) {
+        Cerr << ">>>>> Add partition " << partitionId << Endl;
         FreePartitions.push_back(partitionId);
+    } else {
+        Cerr << ">>>>> Ignore partition " << partitionId << Endl;
     }
 }
 
@@ -1080,30 +1084,42 @@ void TPersQueueReadBalancer::TClientInfo::AddSession(const ui32 groupId, const T
 
 bool TPersQueueReadBalancer::TClientInfo::IsReadeable(ui32 partitionId) const {
     if (!ScalingSupport()) {
+        Cerr << ">>>>> IsReadeabl 1" << Endl;
         return true;
     }
 
     auto* node = Balancer.PartitionGraph.GetPartition(partitionId);
     if (!node) {
+        Cerr << ">>>>> IsReadeabl 2" << Endl;
         return false;
     }
 
     auto it = Balancer.ReadingFinished.find(ClientId);
     if (it == Balancer.ReadingFinished.end()) {
+        Cerr << ">>>>> IsReadeabl 3" << Endl;
         return node->Parents.empty();
     }
 
-    auto& finished = it->second;
-    if (finished.contains(partitionId)) {
+    auto& partitions = it->second;
+    auto pit = partitions.find(partitionId);
+    if (pit == partitions.end()) {
+        return false;
+    }
+
+    auto& partition = pit->second;
+    if (partition.IsFinished()) {
         return false;
     }
 
     for(auto* parent : node->HierarhicalParents) {
-        if (!finished.contains(parent->Id)) {
+        auto pit = partitions.find(parent->Id);
+        if (pit == partitions.end() || !pit->second.IsFinished()) {
+            Cerr << ">>>>> IsReadeabl 5" << Endl;
             return false;
         }
     }
 
+    Cerr << ">>>>> IsReadeabl 6" << Endl;
     return true;
 }
 
@@ -1448,8 +1464,8 @@ void TPersQueueReadBalancer::Handle(TEvPersQueue::TEvGetPartitionsLocation::TPtr
         pResponse->SetNodeId(iter->second.NodeId.GetRef());
         pResponse->SetGeneration(iter->second.Generation.GetRef());
 
-        LOG_DEBUG_S(ctx, NKikimrServices::PERSQUEUE_READ_BALANCER, 
-            GetPrefix() << "addPartitionToResponse tabletId " << tabletId << ", partitionId " << partitionId 
+        LOG_DEBUG_S(ctx, NKikimrServices::PERSQUEUE_READ_BALANCER,
+            GetPrefix() << "addPartitionToResponse tabletId " << tabletId << ", partitionId " << partitionId
                         << ", NodeId " << pResponse->GetNodeId() << ", Generation " << pResponse->GetGeneration());
         return true;
     };
@@ -1793,8 +1809,7 @@ void TPersQueueReadBalancer::Handle(TEvPQ::TEvReadingPartitionStatusRequest::TPt
     auto& r = ev->Get()->Record;
 
     auto& finishedPartitions = ReadingFinished[r.GetConsumer()];
-    auto [v, i] = finishedPartitions.insert(r.GetPartitionId());
-    if (i) {
+    if (finishedPartitions[r.GetPartitionId()].Commit()) {
         auto it = ClientsInfo.find(r.GetConsumer());
         if (it != ClientsInfo.end()) {
             auto& clientInfo = it->second;
@@ -1807,6 +1822,13 @@ void TPersQueueReadBalancer::Handle(TEvPQ::TEvReadingPartitionStatusRequest::TPt
             }
         }
     }
+}
+
+void TPersQueueReadBalancer::Handle(TEvPersQueue::TEvReadingFinishedRequest::TPtr& ev, const TActorContext& ctx) {
+    auto& r = ev->Get()->Record;
+
+    LOG_DEBUG_S(ctx, NKikimrServices::PERSQUEUE_READ_BALANCER,
+                "Reading of partition " << r.GetPartitionId() << " was finished by " << r.GetConsumer() << ", iteration=" << r.GetFirstIteration() << ", SDK=" << r.GetNewSDK());
 }
 
 } // NPQ

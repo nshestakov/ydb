@@ -50,6 +50,7 @@ struct TEvPersQueue {
         EvPeriodicTopicStats,
         EvGetPartitionsLocation,
         EvGetPartitionsLocationResponse,
+        EvReadingFinished,
         EvResponse = EvRequest + 256,
         EvInternalEvents = EvResponse + 256,
         EvEnd
@@ -270,5 +271,17 @@ struct TEvPersQueue {
 
     using TEvProposeTransactionAttach = TEvDataShard::TEvProposeTransactionAttach;
     using TEvProposeTransactionAttachResult = TEvDataShard::TEvProposeTransactionAttachResult;
+
+    struct TEvReadingFinishedRequest : public TEventPB<TEvReadingFinishedRequest, NKikimrPQ::TEvReadingFinishedRequest, EvReadingFinished> {
+        TEvReadingFinishedRequest() = default;
+
+        TEvReadingFinishedRequest(const TString& consumer, ui32 partitionId, bool newSDK, bool firstIteration) {
+            Record.SetConsumer(consumer);
+            Record.SetPartitionId(partitionId);
+            Record.SetNewSDK(newSDK);
+            Record.SetFirstIteration(firstIteration);
+        }
+    };
+
 };
 } //NKikimr

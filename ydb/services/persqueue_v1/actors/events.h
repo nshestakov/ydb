@@ -75,6 +75,7 @@ struct TEvPQProxy {
         EvDirectReadDestroyPartitionSession,
         EvDirectReadCloseSession,
         EvDirectReadSendClientData,
+        EvReadingFinished,
         EvEnd
     };
 
@@ -594,9 +595,21 @@ struct TEvPQProxy {
         TEvDirectReadSendClientData(const std::shared_ptr<Ydb::Topic::StreamDirectReadMessage::FromServer>& message)
             : Message(message)
         {}
-        std::shared_ptr<Ydb::Topic::StreamDirectReadMessage::FromServer> Message;;
+
+        std::shared_ptr<Ydb::Topic::StreamDirectReadMessage::FromServer> Message;
     };
 
+    struct TEvReadingFinished : public TEventLocal<TEvReadingFinished, EvReadingFinished> {
+        TEvReadingFinished(const TString& topic, ui32 partitionId, bool first)
+            : Topic(topic)
+            , PartitionId(partitionId)
+            , First(first)
+        {}
+
+        TString Topic;
+        ui32 PartitionId;
+        bool First;
+    };
 
 };
 

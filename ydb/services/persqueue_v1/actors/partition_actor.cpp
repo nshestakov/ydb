@@ -69,7 +69,6 @@ TPartitionActor::TPartitionActor(
     , UseMigrationProtocol(useMigrationProtocol)
     , FirstRead(true)
 {
-    Y_UNUSED(FirstRead);
 }
 
 
@@ -1013,6 +1012,8 @@ void TPartitionActor::WaitDataInPartition(const TActorContext& ctx) {
 }
 
 void TPartitionActor::Handle(TEvPersQueue::TEvHasDataInfoResponse::TPtr& ev, const TActorContext& ctx) {
+    Cerr << ">>>>> TEvHasDataInfoResponse 0" << Endl;
+
     const auto& record = ev->Get()->Record;
 
     WriteTimestampEstimateMs = record.GetWriteTimestampEstimateMS();
@@ -1049,10 +1050,17 @@ void TPartitionActor::Handle(TEvPersQueue::TEvHasDataInfoResponse::TPtr& ev, con
         ctx.Send(ParentId, new TEvPQProxy::TEvPartitionReady(Partition, WTime, SizeLag, ReadOffset, EndOffset));
         LOG_DEBUG_S(ctx, NKikimrServices::PQ_READ_PROXY, PQ_LOG_PREFIX << " " << Partition
                         << " ready for read with readOffset " << ReadOffset << " endOffset " << EndOffset);
-    } else {
-        if (PipeClient)
-            WaitDataInPartition(ctx);
+    } else if (PipeClient) {
+        WaitDataInPartition(ctx);
     }
+
+    Cerr << ">>>>> TEvHasDataInfoResponse 1" << Endl;
+    if (record.GetReadingFinished()) {
+        // TODO TX?
+        Cerr << ">>>>> TEvHasDataInfoResponse 2" << Endl;
+        ctx.Send(ParentId, new TEvPQProxy::TEvReadingFinished(Topic->GetInternalName(), Partition.Partition, FirstRead));
+    }
+    FirstRead = false;
 }
 
 

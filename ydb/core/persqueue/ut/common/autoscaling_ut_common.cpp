@@ -112,14 +112,14 @@ std::shared_ptr<ISimpleBlockingWriteSession> CreateWriteSession(TTopicClient& cl
     return client.CreateSimpleBlockingWriteSession(writeSettings);
 }
 
-TTestReadSession::TTestReadSession(TTopicClient& client, size_t expectedMessagesCount, bool autoCommit)
+TTestReadSession::TTestReadSession(TTopicClient& client, size_t expectedDataMessagesCount, bool autoCommit)
     : AutoCommit(autoCommit) {
     auto readSettings = TReadSessionSettings()
         .ConsumerName(TEST_CONSUMER)
         .AppendTopics(TEST_TOPIC);
 
     readSettings.EventHandlers_.SimpleDataHandlers(
-        [&, expectedMessagesCount]
+        [&, expectedDataMessagesCount]
         (TReadSessionEvent::TDataReceivedEvent& ev) mutable {
         auto& messages = ev.GetMessages();
         for (size_t i = 0u; i < messages.size(); ++i) {
@@ -142,7 +142,7 @@ TTestReadSession::TTestReadSession(TTopicClient& client, size_t expectedMessages
             }
         }
 
-        if (ReceivedMessages.size() == expectedMessagesCount) {
+        if (ReceivedMessages.size() == expectedDataMessagesCount) {
             Promise.SetValue();
         }
     });
