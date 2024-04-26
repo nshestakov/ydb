@@ -87,6 +87,8 @@ TPartitionFamily::TPartitionFamily(TConsumer& consumerInfo, size_t id, std::vect
     , Session(nullptr)
     , MergeTo(0)
 {
+    ++Consumer.CommonFamilyCount;
+
     ClassifyPartitions();
     UpdatePartitionMapping(Partitions);
     UpdateSpecialSessions();
@@ -273,6 +275,13 @@ void TPartitionFamily::Destroy(const TActorContext& ctx) {
     for (auto partitionId : Partitions) {
         Consumer.PartitionMapping.erase(partitionId);
     }
+
+    if (IsCommon()) {
+        --Consumer.CommonFamilyCount;
+    } else {
+        --Consumer.SpecialFamilyCount;
+    }
+
     Consumer.UnreadableFamilies.erase(Id);
     Consumer.FamiliesRequireBalancing.erase(Id);
     Consumer.Families.erase(Id);
@@ -366,6 +375,7 @@ void TPartitionFamily::AttachePartitions(const std::vector<ui32>& partitions, co
     }
 
     // Removing sessions wich can't read the family now
+    auto wasSpecial = IsSpecial();
     for (auto it = SpecialSessions.begin(); it != SpecialSessions.end();) {
         auto& session = it->second;
         if (session->AllPartitionsReadable(newPartitions)) {
@@ -373,6 +383,10 @@ void TPartitionFamily::AttachePartitions(const std::vector<ui32>& partitions, co
         } else {
             it = SpecialSessions.erase(it);
         }
+    }
+    if (wasSpecial && IsCommon()) {
+        ++Consumer.CommonFamilyCount;
+        --Consumer.SpecialFamilyCount;
     }
 }
 
@@ -483,7 +497,7 @@ void TPartitionFamily::UpdatePartitionMapping(const std::vector<ui32>& partition
 
 void TPartitionFamily::UpdateSpecialSessions() {
     bool hasChanges = false;
-    bool wasSpecial =
+    bool wasSpecial = IsSpecial();
 
     for (auto& [_, session] : Consumer.Sessions) {
         if (session->WithGroups() && session->AllPartitionsReadable(Partitions) && session->AllPartitionsReadable(WantedPartitions)) {
@@ -496,6 +510,10 @@ void TPartitionFamily::UpdateSpecialSessions() {
 
     if (hasChanges) {
         Consumer.FamiliesRequireBalancing[Id] = this;
+        if (!wasSpecial) {
+            --Consumer.CommonFamilyCount;
+            ++Consumer.SpecialFamilyCount;
+        }
     }
 }
 
@@ -794,13 +812,16 @@ bool TConsumer::MergeFamilies(TPartitionFamily* lhs, TPartitionFamily* rhs, cons
 }
 
 void TConsumer::DestroyFamily(TPartitionFamily* family, const TActorContext& ctx) {
-    if (family->Status == TPartitionFamily::EStatus::Active) {
-        family->Release(ctx, TPartitionFamily::ETargetStatus::Destroy);
-    } else if (family->Status == TPartitionFamily::EStatus::Releasing) {
-        family->TargetStatus = TPartitionFamily::ETargetStatus::Destroy;
-    } else {
-        // Free
-        family->Reset(TPartitionFamily::ETargetStatus::Destroy, ctx);
+    switch(family->Status) {
+        case TPartitionFamily::EStatus::Active:
+            family->Release(ctx, TPartitionFamily::ETargetStatus::Destroy);
+            break;
+        case TPartitionFamily::EStatus::Releasing:
+            family->TargetStatus = TPartitionFamily::ETargetStatus::Destroy;
+            break;
+        case TPartitionFamily::EStatus::Free:
+            family->Reset(TPartitionFamily::ETargetStatus::Destroy, ctx);
+            break;
     }
 }
 
@@ -822,9 +843,14 @@ void TConsumer::RegisterReadingSession(TSession* session, const TActorContext& c
         ++SpecialSessionCount;
 
         for (auto& [_, family] : Families) {
+            auto wasSpecial = family->IsSpecial();
             if (session->AllPartitionsReadable(family->Partitions)) {
                 family->SpecialSessions[session->Pipe] = session;
                 FamiliesRequireBalancing[family->Id] = family.get();
+            }
+            if (wasSpecial && family->IsCommon()) {
+                --CommonFamilyCount;
+                ++SpecialFamilyCount;
             }
         }
     } else {
@@ -859,7 +885,12 @@ void TConsumer::UnregisterReadingSession(TSession* session, const TActorContext&
             }
         }
 
+        auto wasSpecial = family->IsSpecial();
         family->SpecialSessions.erase(session->Pipe);
+        if (wasSpecial && family->IsCommon()) {
+            --SpecialFamilyCount;
+            ++CommonFamilyCount;
+        }
     }
 
     Sessions.erase(session->Pipe);
@@ -1157,13 +1188,18 @@ void TConsumer::Balance(const TActorContext& ctx) {
     LOG_DEBUG_S(ctx, NKikimrServices::PERSQUEUE_READ_BALANCER,
             GetPrefix() << "balancing. Sessions=" << Sessions.size() << ", Families=" << Families.size()
             << ", UnradableFamilies=" << UnreadableFamilies.size() << " [" << DebugStr(UnreadableFamilies)
-            << "], RequireBalancing=" << FamiliesRequireBalancing.size() << " [" << DebugStr(FamiliesRequireBalancing) << "]");
+            << "], RequireBalancing=" << FamiliesRequireBalancing.size() << " [" << DebugStr(FamiliesRequireBalancing)
+            << "], CommonSessionCount=" << CommonSessionCount << ", CommonFamilyCount=" << CommonFamilyCount
+            << ", SpecialSessionCount=" << SpecialSessionCount << ", SpecialFamilyCount=" << SpecialFamilyCount);
 
     if (Sessions.empty()) {
         return;
     }
 
     auto startTime = TInstant::Now();
+
+    size_t desiredFamilyCount = CommonSessionCount ? CommonFamilyCount / CommonSessionCount : 0;
+    size_t allowPlusOne = CommonSessionCount ? CommonFamilyCount % CommonSessionCount : 0;
 
     // We try to balance the partitions by sessions that clearly want to read them, even if the distribution is not uniform.
     for (auto& [_, family] : Families) {
@@ -1177,61 +1213,78 @@ void TConsumer::Balance(const TActorContext& ctx) {
         }
     }
 
+
     auto it = Sessions.begin();
-    TOrderedSessions commonSessions = OrderSessions(Sessions, [](auto* session) {
-        return !session->WithGroups();
-    });
+
+    auto NextSession = [&](std::unordered_map<TActorId, TSession*>::iterator& it) {
+        auto targetFamilyCount = desiredFamilyCount + (allowPlusOne ? 1 : 0);
+        for (;it != Sessions.end() && (it->second->WithGroups() || it->second->ActiveFamilyCount >= targetFamilyCount); ++it) {
+            // skip full sessions
+        }
+
+        return it == Sessions.end() ? nullptr : it->second;
+    };
 
     // Balance unredable families.
     if (!UnreadableFamilies.empty()) {
-        auto families = OrderFamilies(UnreadableFamilies);
-        for (auto it = families.rbegin(); it != families.rend(); ++it) {
-            auto* family = *it;
-            TOrderedSessions specialSessions;
-            auto& sessions = (family->IsCommon()) ? commonSessions : (specialSessions = OrderSessions(family->SpecialSessions));
+        for (auto fit = UnreadableFamilies.begin(); fit != UnreadableFamilies.end();) {
+            auto* family = fit->second;
+            TSession* session = nullptr;
 
-            auto sit = sessions.begin();
-            for (;sit != sessions.end() && sessions.size() > 1 && !family->PossibleForBalance(*sit); ++sit) {
-                // Skip unpossible session. If there is only one session, then we always balance in it.
+            if (family->IsCommon()) {
+                session = NextSession(it);
+                if (!family->PossibleForBalance(session)) {
+                    auto skipIterator = it;
+                    if (skipIterator != Sessions.end()) {
+                        session = NextSession(++skipIterator);
+                    }
+
+                    if (!session) {
+                        skipIterator = Sessions.begin();
+                        session = skipIterator == Sessions.end() ? nullptr : skipIterator->second;
+                    }
+                }
+
+                if (session && allowPlusOne && session->ActiveFamilyCount > desiredFamilyCount) {
+                    --allowPlusOne;
+                }
+            } else {
+                auto sessions = OrderSessions(family->SpecialSessions);
+
+                auto sit = sessions.begin();
+                for (;sit != sessions.end() && sessions.size() > 1 && !family->PossibleForBalance(*sit); ++sit) {
+                    // Skip unpossible session. If there is only one session, then we always balance in it.
+                }
+
+                session = sit == sessions.end() ? nullptr : *sit;
             }
 
-            if (sit == sessions.end()) {
+            if (!session) {
                 LOG_DEBUG_S(ctx, NKikimrServices::PERSQUEUE_READ_BALANCER,
                         GetPrefix() << "balancing of the " << family->DebugStr() << " failed because there are no suitable reading sessions.");
+                ++fit;
                 continue;
             }
-
-            auto* session = *sit;
-
-            // Reorder sessions
-            sessions.erase(sit);
 
             LOG_DEBUG_S(ctx, NKikimrServices::PERSQUEUE_READ_BALANCER,
                     GetPrefix() << "balancing " << family->DebugStr() << " for " << session->DebugStr());
             family->StartReading(*session, ctx);
 
-            // Reorder sessions
-            sessions.insert(session);
-
-            UnreadableFamilies.erase(family->Id);
+            fit = UnreadableFamilies.erase(fit);
         }
     }
 
     // Rebalancing reading sessions with a large number of readable partitions.
-    if (!commonSessions.empty()) {
-        auto familyCount = GetStatistics(Families, [](auto* family) {
-            return family->IsCommon();
-        });
-
-        auto desiredFamilyCount = familyCount / CommonSessionCount;
-        auto allowPlusOne = familyCount % CommonSessionCount;
-
+    if (CommonSessionCount) {
         LOG_DEBUG_S(ctx, NKikimrServices::PERSQUEUE_READ_BALANCER,
-                GetPrefix() << "start rebalancing. familyCount=" << familyCount << ", sessionCount=" << CommonSessionCount
+                GetPrefix() << "start rebalancing. familyCount=" << CommonFamilyCount << ", sessionCount=" << CommonSessionCount
                 << ", desiredFamilyCount=" << desiredFamilyCount << ", allowPlusOne=" << allowPlusOne);
 
-        for (auto it = commonSessions.rbegin(); it != commonSessions.rend(); ++it) {
-            auto* session = *it;
+        for (auto [_, session] : Sessions) {
+            if (session->WithGroups()) {
+                continue;
+            }
+
             auto targerFamilyCount = desiredFamilyCount + (allowPlusOne ? 1 : 0);
             auto families = OrderFamilies(session->Families);
             for (auto it = session->Families.begin(); it != session->Families.end() && session->ActiveFamilyCount > targerFamilyCount; ++it) {
@@ -1251,6 +1304,10 @@ void TConsumer::Balance(const TActorContext& ctx) {
     if (!FamiliesRequireBalancing.empty()) {
         for (auto it = FamiliesRequireBalancing.begin(); it != FamiliesRequireBalancing.end();) {
             auto* family = it->second;
+
+            if (family->IsCommon()) {
+                continue;
+            }
 
             if (!family->IsActive()) {
                 LOG_DEBUG_S(ctx, NKikimrServices::PERSQUEUE_READ_BALANCER,

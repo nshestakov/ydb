@@ -111,18 +111,19 @@ Y_UNIT_TEST_SUITE(Balancing) {
         readSession0.Close();
     }
 
-/*
-     Y_UNIT_TEST(Many) {
+     Y_UNIT_TEST(ManyReadSessions) {
         TTopicSdkTestSetup setup = CreateSetup();
-        setup.CreateTopic(TEST_TOPIC, TEST_CONSUMER, 1000);
+        setup.CreateTopic(TEST_TOPIC, TEST_CONSUMER, 2000);
 
         TTopicClient client = setup.MakeClient();
 
         auto CreateClient = [&](size_t i) {
+            Y_UNUSED(i);
+
             auto readSettings = TReadSessionSettings()
                 .ConsumerName(TEST_CONSUMER)
                 .AppendTopics(TEST_TOPIC);
-            readSettings.Topics_[0].AppendPartitionIds(i % 1000);
+            //readSettings.Topics_[0].AppendPartitionIds(i % 1000);
 
             return client.CreateReadSession(readSettings);
         };
@@ -130,7 +131,7 @@ Y_UNIT_TEST_SUITE(Balancing) {
         Cerr << ">>>>> " << TInstant::Now() << " Begin create sessions" << Endl << Flush;
 
         std::deque<std::shared_ptr<IReadSession>> sessions;
-        for (int i = 0; i < 2000; ++i) {
+        for (int i = 0; i < 1000; ++i) {
             sessions.push_back(CreateClient(i));
         }
 
@@ -149,7 +150,6 @@ Y_UNIT_TEST_SUITE(Balancing) {
         Cerr << ">>>>> " << TInstant::Now() << " Finished" << Endl << Flush;
         Sleep(TDuration::Seconds(10));
     }
-*/
  }
 
 } // namespace NKikimr
