@@ -104,6 +104,14 @@ bool TPartitionFamily::IsRelesing() const {
     return Status == EStatus::Releasing;
 }
 
+bool TPartitionFamily::IsCommon() const {
+    return SpecialSessions.empty();
+}
+
+bool TPartitionFamily::IsSpecial() const {
+    return !IsCommon();
+}
+
 bool TPartitionFamily::IsLonely() const {
     return Partitions.size() == 1;
 }
@@ -475,6 +483,7 @@ void TPartitionFamily::UpdatePartitionMapping(const std::vector<ui32>& partition
 
 void TPartitionFamily::UpdateSpecialSessions() {
     bool hasChanges = false;
+    bool wasSpecial =
 
     for (auto& [_, session] : Consumer.Sessions) {
         if (session->WithGroups() && session->AllPartitionsReadable(Partitions) && session->AllPartitionsReadable(WantedPartitions)) {
@@ -546,6 +555,10 @@ TConsumer::TConsumer(TBalancer& balancer, const TString& consumerName)
     , ConsumerName(consumerName)
     , NextFamilyId(0)
     , ActiveFamilyCount(0)
+    , CommonFamilyCount(0)
+    , SpecialFamilyCount(0)
+    , CommonSessionCount(0)
+    , SpecialSessionCount(0)
     , BalanceScheduled(false)
 {
 }
@@ -806,12 +819,16 @@ void TConsumer::RegisterReadingSession(TSession* session, const TActorContext& c
     Sessions[session->Pipe] = session;
 
     if (session->WithGroups()) {
+        ++SpecialSessionCount;
+
         for (auto& [_, family] : Families) {
             if (session->AllPartitionsReadable(family->Partitions)) {
                 family->SpecialSessions[session->Pipe] = session;
                 FamiliesRequireBalancing[family->Id] = family.get();
             }
         }
+    } else {
+        ++CommonSessionCount;
     }
 }
 
@@ -828,6 +845,12 @@ std::vector<TPartitionFamily*> Snapshot(const std::unordered_map<size_t, const s
 }
 
 void TConsumer::UnregisterReadingSession(TSession* session, const TActorContext& ctx) {
+    if (session->WithGroups()) {
+        --SpecialSessionCount;
+    } else {
+        --CommonSessionCount;
+    }
+
     for (auto* family : Snapshot(Families)) {
         if (session == family->Session) {
             if (family->Reset(ctx)) {
@@ -1144,7 +1167,7 @@ void TConsumer::Balance(const TActorContext& ctx) {
 
     // We try to balance the partitions by sessions that clearly want to read them, even if the distribution is not uniform.
     for (auto& [_, family] : Families) {
-        if (family->Status != TPartitionFamily::EStatus::Active || family->SpecialSessions.empty()) {
+        if (family->Status != TPartitionFamily::EStatus::Active || family->IsCommon()) {
             continue;
         }
         if (!family->SpecialSessions.contains(family->Session->Pipe)) {
@@ -1154,6 +1177,7 @@ void TConsumer::Balance(const TActorContext& ctx) {
         }
     }
 
+    auto it = Sessions.begin();
     TOrderedSessions commonSessions = OrderSessions(Sessions, [](auto* session) {
         return !session->WithGroups();
     });
@@ -1164,7 +1188,7 @@ void TConsumer::Balance(const TActorContext& ctx) {
         for (auto it = families.rbegin(); it != families.rend(); ++it) {
             auto* family = *it;
             TOrderedSessions specialSessions;
-            auto& sessions = (family->SpecialSessions.empty()) ? commonSessions : (specialSessions = OrderSessions(family->SpecialSessions));
+            auto& sessions = (family->IsCommon()) ? commonSessions : (specialSessions = OrderSessions(family->SpecialSessions));
 
             auto sit = sessions.begin();
             for (;sit != sessions.end() && sessions.size() > 1 && !family->PossibleForBalance(*sit); ++sit) {
@@ -1196,14 +1220,14 @@ void TConsumer::Balance(const TActorContext& ctx) {
     // Rebalancing reading sessions with a large number of readable partitions.
     if (!commonSessions.empty()) {
         auto familyCount = GetStatistics(Families, [](auto* family) {
-            return family->SpecialSessions.empty();
+            return family->IsCommon();
         });
 
-        auto desiredFamilyCount = familyCount / commonSessions.size();
-        auto allowPlusOne = familyCount % commonSessions.size();
+        auto desiredFamilyCount = familyCount / CommonSessionCount;
+        auto allowPlusOne = familyCount % CommonSessionCount;
 
         LOG_DEBUG_S(ctx, NKikimrServices::PERSQUEUE_READ_BALANCER,
-                GetPrefix() << "start rebalancing. familyCount=" << familyCount << ", sessionCount=" << commonSessions.size()
+                GetPrefix() << "start rebalancing. familyCount=" << familyCount << ", sessionCount=" << CommonSessionCount
                 << ", desiredFamilyCount=" << desiredFamilyCount << ", allowPlusOne=" << allowPlusOne);
 
         for (auto it = commonSessions.rbegin(); it != commonSessions.rend(); ++it) {
@@ -1311,7 +1335,9 @@ TSession::TSession(const TActorId& pipe)
             , ReleasingFamilyCount(0) {
 }
 
-bool TSession::WithGroups() const { return !Partitions.empty(); }
+bool TSession::WithGroups() const {
+    return !Partitions.empty();
+}
 
 template<typename TCollection>
 bool TSession::AllPartitionsReadable(const TCollection& partitions) const {
@@ -1611,14 +1637,12 @@ void TBalancer::Handle(TEvTabletPipe::TEvServerDisconnected::TPtr& ev, const TAc
                 consumer->ScheduleBalance(ctx);
             }
         }
-
-        Sessions.erase(it);
     } else {
         LOG_INFO_S(ctx, NKikimrServices::PERSQUEUE_READ_BALANCER,
                 GetPrefix() << "pipe " << ev->Get()->ClientId << " disconnected no session");
-
-        Sessions.erase(it);
     }
+
+    Sessions.erase(it);
 }
 
 void TBalancer::Handle(TEvPersQueue::TEvRegisterReadSession::TPtr& ev, const TActorContext& ctx) {
@@ -1670,6 +1694,7 @@ void TBalancer::Handle(TEvPersQueue::TEvRegisterReadSession::TPtr& ev, const TAc
     }
 
     auto* session = jt->second.get();
+
     session->ClientId = r.GetClientId();
     session->SessionName = r.GetSession();
     session->Sender = ev->Sender;

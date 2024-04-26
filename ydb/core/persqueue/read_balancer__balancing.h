@@ -101,6 +101,9 @@ struct TPartitionFamily {
     bool IsFree() const;
     bool IsRelesing() const;
 
+    bool IsCommon() const;
+    bool IsSpecial() const;
+
     bool IsLonely() const;
     bool HasActivePartitions() const;
 
@@ -192,6 +195,12 @@ struct TConsumer {
     std::unordered_map<ui32, TPartition> Partitions;
 
     size_t ActiveFamilyCount;
+    size_t CommonFamilyCount;
+    size_t SpecialFamilyCount;
+
+    size_t CommonSessionCount;
+    size_t SpecialSessionCount;
+
     bool BalanceScheduled;
 
     TConsumer(TBalancer& balancer, const TString& consumerName);
