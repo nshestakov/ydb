@@ -91,13 +91,15 @@ void TTopicOperationsScenario::InitStatsCollector()
 void TTopicOperationsScenario::CreateTopic(const TString& database,
                                            const TString& topic,
                                            ui32 partitionCount,
-                                           ui32 consumerCount)
+                                           ui32 consumerCount,
+                                           bool autoscaling,
+                                           ui32 maxPartitionCount)
 {
     auto topicPath =
         TCommandWorkloadTopicDescribe::GenerateFullTopicName(database, topic);
 
     EnsureTopicNotExist(topicPath);
-    CreateTopic(topicPath, partitionCount, consumerCount);
+    CreateTopic(topicPath, partitionCount, consumerCount, autoscaling, maxPartitionCount);
 }
 
 void TTopicOperationsScenario::DropTopic(const TString& database,
@@ -155,14 +157,28 @@ void TTopicOperationsScenario::EnsureTopicNotExist(const TString& topic)
 
 void TTopicOperationsScenario::CreateTopic(const TString& topic,
                                            ui32 partitionCount,
-                                           ui32 consumerCount)
+                                           ui32 consumerCount,
+                                           bool autoscaling,
+                                           ui32 maxPartitionCount)
 {
     Y_ABORT_UNLESS(Driver);
 
     NTopic::TTopicClient client(*Driver);
 
     NTopic::TCreateTopicSettings settings;
-    settings.PartitioningSettings(partitionCount, partitionCount);
+    if (autoscaling) {
+        settings.BeginConfigurePartitioningSettings()
+            .MinActivePartitions(partitionCount)
+            .MaxActivePartitions(maxPartitionCount)
+            .BeginConfigureAutoscalingSettings()
+                .Strategy(NTopic::EAutoscalingStrategy::ScaleUpAndDown)
+                .ThresholdTime(TDuration::Seconds(15))
+                .ScaleUpThresholdPercent(50)
+                .EndConfigureAutoscalingSettings()
+            .EndConfigurePartitioningSettings();
+    } else {
+        settings.PartitioningSettings(partitionCount, partitionCount);
+    }
 
     for (unsigned consumerIdx = 0; consumerIdx < consumerCount; ++consumerIdx) {
         settings

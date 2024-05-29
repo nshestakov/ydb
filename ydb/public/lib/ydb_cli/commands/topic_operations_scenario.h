@@ -53,6 +53,8 @@ public:
     double Percentile = 99.0;
     TString TopicName;
     ui32 TopicPartitionCount = 1;
+    bool TopicAutoscaling = false;
+    ui32 TopicMaxPartitionCount = 1;
     ui32 ProducerThreadCount = 0;
     ui32 ConsumerThreadCount = 0;
     ui32 ConsumerCount = 0;
@@ -76,7 +78,9 @@ protected:
     void CreateTopic(const TString& database,
                      const TString& topic,
                      ui32 partitionCount,
-                     ui32 consumerCount);
+                     ui32 consumerCount,
+                     bool autoscaling,
+                     ui32 maxPartitionCount);
     void DropTopic(const TString& database,
                    const TString& topic);
 
@@ -108,7 +112,9 @@ private:
     void EnsureTopicNotExist(const TString& topic);
     void CreateTopic(const TString& topic,
                      ui32 partitionCount,
-                     ui32 consumerCount);
+                     ui32 consumerCount,
+                     bool autoscaling,
+                     ui32 maxPartitionCount);
 
     static NTable::TSession GetSession(NTable::TTableClient& client);
 

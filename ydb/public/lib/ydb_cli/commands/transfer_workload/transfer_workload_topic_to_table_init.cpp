@@ -9,7 +9,7 @@ using namespace NYdb::NConsoleClient;
 
 int TCommandWorkloadTransferTopicToTableInit::TScenario::DoRun(const TConfig& config)
 {
-    CreateTopic(config.Database, TopicName, TopicPartitionCount, ConsumerCount);
+    CreateTopic(config.Database, TopicName, TopicPartitionCount, ConsumerCount, false, 0);
     CreateWriteOnlyTable(GetWriteOnlyTableName(), TablePartitionCount);
     CreateReadOnlyTable(GetReadOnlyTableName(), TablePartitionCount);
 

@@ -81,7 +81,7 @@ bool TTopicWorkloadWriterWorker::WaitForInitSeqNo()
 
 void TTopicWorkloadWriterWorker::Process() {
     Sleep(TDuration::Seconds((float)Params.WarmupSec * Params.WriterIdx / Params.ProducerThreadCount));
-    
+
     const TInstant endTime = TInstant::Now() + TDuration::Seconds(Params.TotalSec);
 
     StartTimestamp = Now();
@@ -120,13 +120,13 @@ void TTopicWorkloadWriterWorker::Process() {
                 writingAllowed &= BytesWritten < bytesMustBeWritten;
                 WRITE_LOG(Params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << "BytesWritten " << BytesWritten << " bytesMustBeWritten " << bytesMustBeWritten << " writingAllowed " << writingAllowed);
             }
-            else 
+            else
             {
-                writingAllowed &= InflightMessages.size() <= 1_MB / Params.MessageSize;
+                writingAllowed &= InflightMessages.size() <= 10_MB / Params.MessageSize;
                 WRITE_LOG(Params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << "Inflight size " << InflightMessages.size() << " writingAllowed " << writingAllowed);
             }
 
-            if (writingAllowed) 
+            if (writingAllowed)
             {
                 TString data = GetGeneratedMessage();
 
@@ -142,7 +142,7 @@ void TTopicWorkloadWriterWorker::Process() {
                 ContinuationToken.Clear();
                 MessageId++;
             }
-            else 
+            else
                 Sleep(TDuration::MilliSeconds(1));
 
             if (events.empty())
@@ -224,7 +224,8 @@ void TTopicWorkloadWriterWorker::CreateWorker() {
     settings.Codec((NYdb::NTopic::ECodec)Params.Codec);
     settings.Path(Params.TopicName);
     settings.ProducerId(Params.ProducerId);
-    settings.PartitionId(Params.PartitionId);
+    settings.MessageGroupId(Params.ProducerId);
+    //settings.PartitionId(Params.PartitionId);
     settings.DirectWriteToPartition(Params.Direct);
     WriteSession = NYdb::NTopic::TTopicClient(Params.Driver).CreateWriteSession(settings);
 }

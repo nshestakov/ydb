@@ -10,7 +10,7 @@ using namespace NYdb::NConsoleClient;
 
 int TCommandWorkloadTopicInit::TScenario::DoRun(const TConfig& config)
 {
-    CreateTopic(config.Database, TopicName, TopicPartitionCount, ConsumerCount);
+    CreateTopic(config.Database, TopicName, TopicPartitionCount, ConsumerCount, TopicAutoscaling, TopicMaxPartitionCount);
 
     return EXIT_SUCCESS;
 }
@@ -39,6 +39,12 @@ void TCommandWorkloadTopicInit::Config(TConfig& config)
     config.Opts->AddLongOption('c', "consumers", "Number of consumers in the topic.")
         .DefaultValue(1)
         .StoreResult(&Scenario.ConsumerCount);
+
+    config.Opts->AddLongOption('a', "autoscaling", "Enable autoscaling of topic.")
+        .DefaultValue(false)
+        .StoreTrue(&Scenario.TopicAutoscaling);
+    config.Opts->AddLongOption('m', "max-partitions-count", "Max number of partitions in the topic.")
+        .StoreResult(&Scenario.TopicMaxPartitionCount);
 }
 
 void TCommandWorkloadTopicInit::Parse(TConfig& config)
