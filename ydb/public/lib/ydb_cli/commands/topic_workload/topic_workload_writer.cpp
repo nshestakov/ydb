@@ -82,7 +82,7 @@ bool TTopicWorkloadWriterWorker::WaitForInitSeqNo()
 void TTopicWorkloadWriterWorker::Process() {
     Sleep(TDuration::Seconds((float)Params.WarmupSec * Params.WriterIdx / Params.ProducerThreadCount));
 
-    const TInstant endTime = TInstant::Now() + TDuration::Seconds(Params.TotalSec);
+    const TInstant endTime = Now() + TDuration::Seconds(Params.TotalSec);
 
     StartTimestamp = Now();
     WRITE_LOG(Params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << "StartTimestamp " << StartTimestamp);
@@ -122,7 +122,7 @@ void TTopicWorkloadWriterWorker::Process() {
             }
             else
             {
-                writingAllowed &= InflightMessages.size() <= 10_MB / Params.MessageSize;
+                writingAllowed &= InflightMessages.size() <= 1_MB / Params.MessageSize;
                 WRITE_LOG(Params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << "Inflight size " << InflightMessages.size() << " writingAllowed " << writingAllowed);
             }
 
@@ -213,8 +213,15 @@ bool TTopicWorkloadWriterWorker::ProcessReadyToAcceptEvent(
 bool TTopicWorkloadWriterWorker::ProcessSessionClosedEvent(
     const NYdb::NTopic::TSessionClosedEvent& event) {
     WRITE_LOG(Params.Log, ELogPriority::TLOG_EMERG, TStringBuilder() << "Got close event: " << event.DebugString());
-    //! Session is closed, stop any work with it.
-    *Params.ErrorFlag = 1;
+
+    WriteSession->Close();
+    InflightMessages.clear();
+    ContinuationToken.Clear();
+
+    CreateWorker();
+    if (!WaitForInitSeqNo())
+        (*Params.ErrorFlag) = 1;
+
     return false;
 }
 
