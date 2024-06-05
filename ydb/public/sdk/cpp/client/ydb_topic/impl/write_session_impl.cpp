@@ -15,7 +15,7 @@
 
 namespace NYdb::NTopic {
 
-const TDuration UPDATE_TOKEN_PERIOD = TDuration::Seconds(15);
+const TDuration UPDATE_TOKEN_PERIOD = TDuration::Hours(1);
 // Error code from file ydb/public/api/protos/persqueue_error_codes_v1.proto
 const ui64 WRITE_ERROR_PARTITION_INACTIVE = 500029;
 
@@ -1307,12 +1307,12 @@ void TWriteSessionImpl::UpdateTokenIfNeededImpl() {
             << " LastTokenUpdate + TDuration::Seconds(5) > TInstant::Now() = " << (LastTokenUpdate + TDuration::Seconds(5) > TInstant::Now()));
 
 
-    if (!DbDriverState->CredentialsProvider || !SessionEstablished) {
+    if (!DbDriverState->CredentialsProvider || UpdateTokenInProgress || !SessionEstablished) {
         return;
     }
 
     auto token = DbDriverState->CredentialsProvider->GetAuthInfo();
-    if (token == PrevToken && LastTokenUpdate + TDuration::Seconds(5) > TInstant::Now()) {
+    if (token == PrevToken) {
         return;
     }
 
@@ -1324,8 +1324,6 @@ void TWriteSessionImpl::UpdateTokenIfNeededImpl() {
     TClientMessage clientMessage;
     clientMessage.mutable_update_token_request()->set_token(token);
     Processor->Write(std::move(clientMessage));
-
-    LastTokenUpdate = TInstant::Now();
 }
 
 bool TWriteSessionImpl::TxIsChanged(const Ydb::Topic::StreamWriteMessage_WriteRequest* writeRequest) const
@@ -1472,8 +1470,8 @@ void TWriteSessionImpl::HandleWakeUpImpl() {
     };
     auto now = TInstant::Now();
     if (now - LastTokenUpdate > UPDATE_TOKEN_PERIOD) {
+        LastTokenUpdate = now;
         UpdateTokenIfNeededImpl();
-        //LastTokenUpdate = now;
     }
 
     const auto flushAfter = CurrentBatch.StartedAt == TInstant::Zero()
