@@ -1035,7 +1035,7 @@ void TWriteSessionActor<UseMigrationProtocol>::ProcessWriteResponse(
 template<bool UseMigrationProtocol>
 void TWriteSessionActor<UseMigrationProtocol>::Handle(NPQ::TEvPartitionWriter::TEvWriteResponse::TPtr& ev, const TActorContext& ctx) {
     if (State != ES_INITED) {
-        return CloseSession("got write response but not wait for it", PersQueue::ErrorCode::ERROR, ctx);
+        return CloseSession(TStringBuilder() << "got write response but not wait for it (" << static_cast<int>(State) << ")", PersQueue::ErrorCode::ERROR, ctx);
     }
 
     const auto& result = *ev->Get();
@@ -1315,7 +1315,7 @@ void TWriteSessionActor<UseMigrationProtocol>::Handle(typename TEvWrite::TPtr& e
 
     if (State != ES_INITED) {
         //answer error
-        CloseSession("write in not inited session", PersQueue::ErrorCode::BAD_REQUEST, ctx);
+        CloseSession(TStringBuilder() << "write in not inited session (" << static_cast<int>(State) << ")", PersQueue::ErrorCode::BAD_REQUEST, ctx);
         return;
     }
 

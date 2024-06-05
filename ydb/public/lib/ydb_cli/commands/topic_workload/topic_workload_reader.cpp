@@ -10,17 +10,18 @@ using namespace NYdb::NConsoleClient;
 
 void TTopicWorkloadReader::RetryableReaderLoop(TTopicWorkloadReaderParams& params) {
     const TInstant endTime = Now() + TDuration::Seconds(params.TotalSec + 3);
+    std::unordered_map<TString, ui64> lastSeqNo;
 
     while (!*params.ErrorFlag && Now() < endTime) {
         try {
-            ReaderLoop(params, endTime);
+            ReaderLoop(params, endTime, lastSeqNo);
         } catch (const yexception& ex) {
             WRITE_LOG(params.Log, ELogPriority::TLOG_WARNING, TStringBuilder() << ex);
         }
     }
 }
 
-void TTopicWorkloadReader::ReaderLoop(TTopicWorkloadReaderParams& params, TInstant endTime) {
+void TTopicWorkloadReader::ReaderLoop(TTopicWorkloadReaderParams& params, TInstant endTime, std::unordered_map<TString, ui64> lastSeqNo) {
     auto topicClient = std::make_unique<NYdb::NTopic::TTopicClient>(params.Driver);
     std::optional<TTransactionSupport> txSupport;
 
@@ -45,8 +46,7 @@ void TTopicWorkloadReader::ReaderLoop(TTopicWorkloadReaderParams& params, TInsta
         }
         settings.WithoutConsumer().AppendTopics(topic);
     }
-    
-    
+
     if (params.UseTransactions) {
         txSupport.emplace(params.Driver, params.ReadOnlyTableName, params.TableName);
     }
@@ -97,10 +97,21 @@ void TTopicWorkloadReader::ReaderLoop(TTopicWorkloadReaderParams& params, TInsta
                         txSupport->AppendRow(message.GetData());
                     }
 
-                    WRITE_LOG(params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << "Got message: " << message.GetMessageGroupId() 
-                        << " topic " << message.GetPartitionSession()->GetTopicPath() << " partition " << message.GetPartitionSession()->GetPartitionId() 
+                    WRITE_LOG(params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << "Got message: " << message.GetMessageGroupId()
+                        << " topic " << message.GetPartitionSession()->GetTopicPath() << " partition " << message.GetPartitionSession()->GetPartitionId()
                         << " offset " << message.GetOffset() << " seqNo " << message.GetSeqNo()
                         << " createTime " << message.GetCreateTime() << " fullTimeMs " << fullTime);
+
+                    auto& last = lastSeqNo[message.GetMessageGroupId()];
+                    if (last >= message.GetSeqNo()) {
+                        WRITE_LOG(params.Log, ELogPriority::TLOG_WARNING, TStringBuilder() << "Wrong seqNo: received" << message.GetSeqNo()
+                            <<" but last readed " << last << message.GetMessageGroupId()
+                            << " topic " << message.GetPartitionSession()->GetTopicPath() << " partition " << message.GetPartitionSession()->GetPartitionId()
+                            << " offset " << message.GetOffset() << " seqNo " << message.GetSeqNo()
+                            << " createTime " << message.GetCreateTime() << " fullTimeMs " << fullTime);
+                    }
+
+                    last = message.GetSeqNo();
                 }
 
                 if (!params.ReadWithoutConsumer && (!txSupport || params.UseTopicCommit)) {

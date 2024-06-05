@@ -173,7 +173,7 @@ void TTopicOperationsScenario::CreateTopic(const TString& topic,
             .BeginConfigureAutoscalingSettings()
                 .Strategy(NTopic::EAutoscalingStrategy::ScaleUpAndDown)
                 .ThresholdTime(TDuration::Seconds(15))
-                .ScaleUpThresholdPercent(50)
+                .ScaleUpThresholdPercent(90)
                 .EndConfigureAutoscalingSettings()
             .EndConfigurePartitioningSettings();
     } else {

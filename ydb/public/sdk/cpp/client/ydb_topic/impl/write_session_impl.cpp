@@ -15,7 +15,7 @@
 
 namespace NYdb::NTopic {
 
-const TDuration UPDATE_TOKEN_PERIOD = TDuration::Hours(1);
+const TDuration UPDATE_TOKEN_PERIOD = TDuration::Seconds(15);
 // Error code from file ydb/public/api/protos/persqueue_error_codes_v1.proto
 const ui64 WRITE_ERROR_PARTITION_INACTIVE = 500029;
 
@@ -772,6 +772,8 @@ void TWriteSessionImpl::ReadFromProcessor() {
                     (NYdbGrpc::TGrpcStatus&& grpcStatus) {
             if (auto self = cbContext->LockShared()) {
                 self->OnReadDone(std::move(grpcStatus), connectionGeneration);
+            } else {
+                Y_ABORT_UNLESS(false);
             }
         };
     }
@@ -797,7 +799,7 @@ void TWriteSessionImpl::OnWriteDone(NYdbGrpc::TGrpcStatus&& status, size_t conne
 }
 
 void TWriteSessionImpl::OnReadDone(NYdbGrpc::TGrpcStatus&& grpcStatus, size_t connectionGeneration) {
-    LOG_LAZY(DbDriverState->Log, TLOG_DEBUG, LogPrefix() << "Write session: OnReadDone " << grpcStatus.ToDebugString());
+    LOG_LAZY(DbDriverState->Log, TLOG_DEBUG, LogPrefix() << "Write session: OnReadDone " << grpcStatus.ToDebugString() << " ServerMsg: " << ServerMessage->DebugString() );
 
     TPlainStatus errorStatus;
     TProcessSrvMessageResult processResult;
@@ -808,6 +810,7 @@ void TWriteSessionImpl::OnReadDone(NYdbGrpc::TGrpcStatus&& grpcStatus, size_t co
     bool doRead = false;
     with_lock (Lock) {
         UpdateTimedCountersImpl();
+        LOG_LAZY(DbDriverState->Log, TLOG_DEBUG, LogPrefix() <<" OnReadDone connectionGeneration != ConnectionGeneration: " << connectionGeneration << " != " << ConnectionGeneration );
         if (connectionGeneration != ConnectionGeneration) {
             return; // Message from previous connection. Ignore.
         }
@@ -823,6 +826,10 @@ void TWriteSessionImpl::OnReadDone(NYdbGrpc::TGrpcStatus&& grpcStatus, size_t co
             }
         }
     }
+
+    LOG_LAZY(DbDriverState->Log, TLOG_DEBUG, LogPrefix() << "OnReadDone  DoRead" <<  doRead << " errorStatus.Ok()=" << errorStatus.Ok()
+            << " IsErrorMessage=" << IsErrorMessage(*ServerMessage) << " SeverMessage=" << ServerMessage->ShortDebugString());
+
     if (doRead)
         ReadFromProcessor();
 
@@ -1295,14 +1302,17 @@ bool TWriteSessionImpl::IsReadyToSendNextImpl() const {
 void TWriteSessionImpl::UpdateTokenIfNeededImpl() {
     Y_ABORT_UNLESS(Lock.IsLocked());
 
-    LOG_LAZY(DbDriverState->Log, TLOG_DEBUG, LogPrefix() << "Write session: try to update token");
+    LOG_LAZY(DbDriverState->Log, TLOG_DEBUG, LogPrefix() << "Write session: try to update token CredentialsProvider=" << !!DbDriverState->CredentialsProvider
+            << " UpdateTokenInProgress=" << UpdateTokenInProgress << " SessionEstablished=" << SessionEstablished
+            << " LastTokenUpdate + TDuration::Seconds(5) > TInstant::Now() = " << (LastTokenUpdate + TDuration::Seconds(5) > TInstant::Now()));
 
-    if (!DbDriverState->CredentialsProvider || UpdateTokenInProgress || !SessionEstablished) {
+
+    if (!DbDriverState->CredentialsProvider || !SessionEstablished) {
         return;
     }
 
     auto token = DbDriverState->CredentialsProvider->GetAuthInfo();
-    if (token == PrevToken) {
+    if (token == PrevToken && LastTokenUpdate + TDuration::Seconds(5) > TInstant::Now()) {
         return;
     }
 
@@ -1314,6 +1324,8 @@ void TWriteSessionImpl::UpdateTokenIfNeededImpl() {
     TClientMessage clientMessage;
     clientMessage.mutable_update_token_request()->set_token(token);
     Processor->Write(std::move(clientMessage));
+
+    LastTokenUpdate = TInstant::Now();
 }
 
 bool TWriteSessionImpl::TxIsChanged(const Ydb::Topic::StreamWriteMessage_WriteRequest* writeRequest) const
@@ -1458,14 +1470,15 @@ void TWriteSessionImpl::HandleWakeUpImpl() {
             }
         }
     };
-    if (TInstant::Now() - LastTokenUpdate > UPDATE_TOKEN_PERIOD) {
-        LastTokenUpdate = TInstant::Now();
+    auto now = TInstant::Now();
+    if (now - LastTokenUpdate > UPDATE_TOKEN_PERIOD) {
         UpdateTokenIfNeededImpl();
+        //LastTokenUpdate = now;
     }
 
     const auto flushAfter = CurrentBatch.StartedAt == TInstant::Zero()
         ? WakeupInterval
-        : WakeupInterval - Min(Now() - CurrentBatch.StartedAt, WakeupInterval);
+        : WakeupInterval - Min(now - CurrentBatch.StartedAt, WakeupInterval);
     Connections->ScheduleCallback(flushAfter, std::move(callback));
 }
 
