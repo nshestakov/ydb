@@ -772,8 +772,6 @@ void TWriteSessionImpl::ReadFromProcessor() {
                     (NYdbGrpc::TGrpcStatus&& grpcStatus) {
             if (auto self = cbContext->LockShared()) {
                 self->OnReadDone(std::move(grpcStatus), connectionGeneration);
-            } else {
-                Y_ABORT_UNLESS(false);
             }
         };
     }

@@ -117,7 +117,7 @@ void TTopicWorkloadWriterWorker::Process() {
             if (Params.ByteRate != 0)
             {
                 ui64 bytesMustBeWritten = (now - StartTimestamp).SecondsFloat() * Params.ByteRate / Params.ProducerThreadCount;
-                writingAllowed &= BytesWritten < bytesMustBeWritten; //  && InflightMessages.size() <= 10_MB / Params.MessageSize;
+                writingAllowed &= BytesWritten < bytesMustBeWritten && InflightMessages.size() <= 10_MB / Params.MessageSize;
                 WRITE_LOG(Params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << "BytesWritten " << BytesWritten << " bytesMustBeWritten " << bytesMustBeWritten << " writingAllowed " << writingAllowed);
             }
             else
