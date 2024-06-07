@@ -8,6 +8,8 @@
 #include <library/cpp/logger/log.h>
 #include <util/generic/string.h>
 
+#include <deque>
+
 namespace NYdb {
     namespace NConsoleClient {
 
@@ -72,7 +74,7 @@ namespace NYdb {
             std::shared_ptr<TTopicWorkloadStatsCollector> StatsCollector;
 
             // SeqNo - CreateTime
-            THashMap<ui64, TInstant> InflightMessages;
+            std::deque<std::pair<ui64, TInstant>> InflightMessages;
         };
     }
 }

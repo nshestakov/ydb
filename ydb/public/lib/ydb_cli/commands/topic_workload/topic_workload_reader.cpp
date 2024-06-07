@@ -21,7 +21,7 @@ void TTopicWorkloadReader::RetryableReaderLoop(TTopicWorkloadReaderParams& param
     }
 }
 
-void TTopicWorkloadReader::ReaderLoop(TTopicWorkloadReaderParams& params, TInstant endTime, std::unordered_map<TString, ui64> lastSeqNo) {
+void TTopicWorkloadReader::ReaderLoop(TTopicWorkloadReaderParams& params, TInstant endTime, std::unordered_map<TString, ui64>& lastSeqNo) {
     auto topicClient = std::make_unique<NYdb::NTopic::TTopicClient>(params.Driver);
     std::optional<TTransactionSupport> txSupport;
 
@@ -103,12 +103,16 @@ void TTopicWorkloadReader::ReaderLoop(TTopicWorkloadReaderParams& params, TInsta
                         << " createTime " << message.GetCreateTime() << " fullTimeMs " << fullTime);
 
                     auto& last = lastSeqNo[message.GetMessageGroupId()];
-                    if (last >= message.GetSeqNo()) {
-                        WRITE_LOG(params.Log, ELogPriority::TLOG_WARNING, TStringBuilder() << "Wrong seqNo: received" << message.GetSeqNo()
-                            <<" but last readed " << last << message.GetMessageGroupId()
+                    if (last + 1 != message.GetSeqNo()) {
+                        TStringBuilder sb;
+                        for (auto& [k, v] : lastSeqNo) {
+                            sb << k << "=" << v << ", ";
+                        }
+                        WRITE_LOG(params.Log, ELogPriority::TLOG_EMERG, TStringBuilder() << "Wrong seqNo: received " << message.GetSeqNo()
+                            <<" but last readed " << last  << " " << message.GetMessageGroupId()
                             << " topic " << message.GetPartitionSession()->GetTopicPath() << " partition " << message.GetPartitionSession()->GetPartitionId()
                             << " offset " << message.GetOffset() << " seqNo " << message.GetSeqNo()
-                            << " createTime " << message.GetCreateTime() << " fullTimeMs " << fullTime);
+                            << " createTime " << message.GetCreateTime() << " fullTimeMs " << fullTime << " known " << sb);
                     }
 
                     last = message.GetSeqNo();
@@ -121,11 +125,12 @@ void TTopicWorkloadReader::ReaderLoop(TTopicWorkloadReaderParams& params, TInsta
                 auto stream = createPartitionStreamEvent->GetPartitionSession();
                 ui64 startOffset = streamState[std::make_pair(stream->GetTopicPath(), stream->GetPartitionId())].StartOffset;
                 streamState[std::make_pair(stream->GetTopicPath(), stream->GetPartitionId())].Stream = stream;
-                WRITE_LOG(params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << "Starting read " << createPartitionStreamEvent->DebugString() << " from " << startOffset);
+                WRITE_LOG(params.Log, ELogPriority::TLOG_EMERG, TStringBuilder() << "Starting read " << createPartitionStreamEvent->DebugString() << " from " << startOffset);
                 createPartitionStreamEvent->Confirm();
             } else if (auto* destroyPartitionStreamEvent = std::get_if<NYdb::NTopic::TReadSessionEvent::TStopPartitionSessionEvent>(&event)) {
                 auto stream = destroyPartitionStreamEvent->GetPartitionSession();
                 streamState[std::make_pair(stream->GetTopicPath(), stream->GetPartitionId())].Stream = nullptr;
+                WRITE_LOG(params.Log, ELogPriority::TLOG_EMERG, TStringBuilder() << "Stopping read " << destroyPartitionStreamEvent->DebugString());
 
                 if (txSupport) {
                     // gracefull shutdown. we will send confirmations later

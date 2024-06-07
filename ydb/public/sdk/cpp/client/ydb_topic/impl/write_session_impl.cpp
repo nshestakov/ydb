@@ -1016,7 +1016,7 @@ TWriteSessionImpl::TProcessSrvMessageResult TWriteSessionImpl::ProcessServerMess
 
 bool TWriteSessionImpl::CleanupOnAcknowledged(ui64 id) {
     bool result = false;
-    LOG_LAZY(DbDriverState->Log, TLOG_DEBUG, LogPrefix() << "Write session: acknoledged message " << id);
+    LOG_LAZY(DbDriverState->Log, TLOG_EMERG, LogPrefix() << "Write session: acknoledged message " << id);
     UpdateTimedCountersImpl();
     const auto& sentFront = SentOriginalMessages.front();
     ui64 size = 0;
@@ -1397,10 +1397,10 @@ void TWriteSessionImpl::SendImpl() {
         }
         UpdateTokenIfNeededImpl();
         LOG_LAZY(DbDriverState->Log,
-            TLOG_DEBUG,
+            TLOG_EMERG,
             LogPrefix() << "Send " << writeRequest->messages_size() << " message(s) ("
                 << OriginalMessagesToSend.size() << " left), first sequence number is "
-                << writeRequest->messages(0).seq_no()
+                << writeRequest->messages(0).seq_no() << " last seqNo " << writeRequest->messages(writeRequest->messages_size() - 1).seq_no()
         );
         Processor->Write(std::move(clientMessage));
     }

@@ -117,7 +117,7 @@ void TTopicWorkloadWriterWorker::Process() {
             if (Params.ByteRate != 0)
             {
                 ui64 bytesMustBeWritten = (now - StartTimestamp).SecondsFloat() * Params.ByteRate / Params.ProducerThreadCount;
-                writingAllowed &= BytesWritten < bytesMustBeWritten && InflightMessages.size() <= 10_MB / Params.MessageSize;
+                writingAllowed &= BytesWritten < bytesMustBeWritten; // && InflightMessages.size() <= 10_MB / Params.MessageSize;
                 WRITE_LOG(Params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << "BytesWritten " << BytesWritten << " bytesMustBeWritten " << bytesMustBeWritten << " writingAllowed " << writingAllowed);
             }
             else
@@ -132,7 +132,7 @@ void TTopicWorkloadWriterWorker::Process() {
 
                 TMaybe<TInstant> createTimestamp = Params.ByteRate == 0 ? TMaybe<TInstant>(Nothing()) : GetCreateTimestamp();
 
-                InflightMessages[MessageId] = createTimestamp.GetOrElse(now);
+                InflightMessages.push_back({MessageId, createTimestamp.GetOrElse(now)});
 
                 BytesWritten += Params.MessageSize;
 
@@ -186,22 +186,21 @@ bool TTopicWorkloadWriterWorker::ProcessAckEvent(
         WRITE_LOG(Params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << "Got ack for write " << AckedMessageId);
         AckedMessageId = ack.SeqNo;
 
-        auto inflightMessageIter = InflightMessages.find(AckedMessageId);
-        if (inflightMessageIter == InflightMessages.end())
+        if (InflightMessages.empty() || InflightMessages.front().first != AckedMessageId)
         {
             *Params.ErrorFlag = 1;
             WRITE_LOG(Params.Log, ELogPriority::TLOG_ERR, TStringBuilder() << "Unknown AckedMessageId " << AckedMessageId);
             return false;
         }
 
-        auto inflightTime = (now - inflightMessageIter->second);
-        InflightMessages.erase(inflightMessageIter);
+        auto inflightTime = (now - InflightMessages.front().second);
+        InflightMessages.pop_front();
 
         StatsCollector->AddWriterEvent(Params.WriterIdx, {Params.MessageSize, inflightTime.MilliSeconds(), InflightMessages.size()});
 
         hasProgress = true;
 
-        WRITE_LOG(Params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << "Ack PartitionId " << ack.Details->PartitionId << " Offset " << ack.Details->Offset << " InflightTime " << inflightTime << " WriteTime " << ack.Stat->WriteTime << " MinTimeInPartitionQueue " << ack.Stat->MinTimeInPartitionQueue << " MaxTimeInPartitionQueue " << ack.Stat->MaxTimeInPartitionQueue << " PartitionQuotedTime " << ack.Stat->PartitionQuotedTime << " TopicQuotedTime " << ack.Stat->TopicQuotedTime);
+        WRITE_LOG(Params.Log, ELogPriority::TLOG_EMERG, TStringBuilder() << Params.ProducerId << " Ack PartitionId " << ack.Details->PartitionId << " Offset " << ack.Details->Offset << " InflightTime " << inflightTime << " WriteTime " << ack.Stat->WriteTime << " MinTimeInPartitionQueue " << ack.Stat->MinTimeInPartitionQueue << " MaxTimeInPartitionQueue " << ack.Stat->MaxTimeInPartitionQueue << " PartitionQuotedTime " << ack.Stat->PartitionQuotedTime << " TopicQuotedTime " << ack.Stat->TopicQuotedTime);
     }
     return hasProgress;
 }
@@ -223,7 +222,7 @@ bool TTopicWorkloadWriterWorker::ProcessSessionClosedEvent(
     const NYdb::NTopic::TSessionClosedEvent& event) {
     WRITE_LOG(Params.Log, ELogPriority::TLOG_EMERG, TStringBuilder() << "Got close event: " << event.DebugString());
 
-    (*Params.ErrorFlag) = 1;
+    *Params.ErrorFlag = 1;
 
     return false;
 }

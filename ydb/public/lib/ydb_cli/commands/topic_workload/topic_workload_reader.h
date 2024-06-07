@@ -42,7 +42,7 @@ namespace NYdb {
             static void RetryableReaderLoop(TTopicWorkloadReaderParams& params);
 
         private:
-            static void ReaderLoop(TTopicWorkloadReaderParams& params, TInstant endTime, std::unordered_map<TString, ui64> lastSeqNo);
+            static void ReaderLoop(TTopicWorkloadReaderParams& params, TInstant endTime, std::unordered_map<TString, ui64>& lastSeqNo);
 
             static TVector<NYdb::NTopic::TReadSessionEvent::TEvent> GetEvents(NYdb::NTopic::IReadSession& readSession,
                                                                               TTopicWorkloadReaderParams& params,
