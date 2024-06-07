@@ -380,7 +380,7 @@ private:
 
     //TString GetDebugIdentity() const;
     TClientMessage GetInitClientMessage();
-    bool CleanupOnAcknowledged(ui64 id);
+    bool CleanupOnAcknowledged(ui64 id, ui64 offset);
     bool IsReadyToSendNextImpl() const;
     ui64 GetNextIdImpl(const TMaybe<ui64>& seqNo);
     ui64 GetSeqNoImpl(ui64 id);

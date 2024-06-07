@@ -829,6 +829,10 @@ void TWriteSessionImpl::OnReadDone(NYdbGrpc::TGrpcStatus&& grpcStatus, size_t co
         }
     }
 
+    for (auto& event : processResult.Events) {
+        EventsQueue->PushEvent(std::move(event));
+    }
+
     LOG_LAZY(DbDriverState->Log, TLOG_DEBUG, LogPrefix() << "OnReadDone  DoRead" <<  doRead << " errorStatus.Ok()=" << errorStatus.Ok()
             << " IsErrorMessage=" << IsErrorMessage(*ServerMessage) << " SeverMessage=" << ServerMessage->ShortDebugString());
 
@@ -844,9 +848,6 @@ void TWriteSessionImpl::OnReadDone(NYdbGrpc::TGrpcStatus&& grpcStatus, size_t co
         if (processResult.HandleResult.DoStop) {
             CloseImpl(std::move(errorStatus));
         }
-    }
-    for (auto& event : processResult.Events) {
-        EventsQueue->PushEvent(std::move(event));
     }
     if (needSetValue) {
         InitSeqNoPromise.SetValue(*processResult.InitSeqNo);
@@ -960,7 +961,7 @@ TWriteSessionImpl::TProcessSrvMessageResult TWriteSessionImpl::ProcessServerMess
             TWriteSessionEvent::TAcksEvent acksEvent;
             const auto& batchWriteResponse = ServerMessage->write_response();
             LOG_LAZY(DbDriverState->Log,
-                TLOG_DEBUG,
+                TLOG_EMERG,
                 LogPrefix() << "Write session got write response: " << batchWriteResponse.ShortDebugString()
             );
             TWriteStat::TPtr writeStat = new TWriteStat{};
@@ -1000,7 +1001,7 @@ TWriteSessionImpl::TProcessSrvMessageResult TWriteSessionImpl::ProcessServerMess
                     writeStat,
                 });
 
-                if (CleanupOnAcknowledged(GetIdImpl(sequenceNumber))) {
+                if (CleanupOnAcknowledged(GetIdImpl(sequenceNumber), offset)) {
                     result.Events.emplace_back(TWriteSessionEvent::TReadyToAcceptEvent{IssueContinuationToken()});
                 }
             }
@@ -1018,9 +1019,9 @@ TWriteSessionImpl::TProcessSrvMessageResult TWriteSessionImpl::ProcessServerMess
     return result;
 }
 
-bool TWriteSessionImpl::CleanupOnAcknowledged(ui64 id) {
+bool TWriteSessionImpl::CleanupOnAcknowledged(ui64 id, ui64 offset) {
     bool result = false;
-    LOG_LAZY(DbDriverState->Log, TLOG_EMERG, LogPrefix() << "Write session: acknoledged message " << id);
+    LOG_LAZY(DbDriverState->Log, TLOG_EMERG, LogPrefix() << "Write session: acknoledged message " << id << " offset " << offset);
     UpdateTimedCountersImpl();
     const auto& sentFront = SentOriginalMessages.front();
     ui64 size = 0;
@@ -1406,6 +1407,13 @@ void TWriteSessionImpl::SendImpl() {
                 << OriginalMessagesToSend.size() << " left), first sequence number is "
                 << writeRequest->messages(0).seq_no() << " last seqNo " << writeRequest->messages(writeRequest->messages_size() - 1).seq_no()
         );
+
+        ssize_t i = -1;
+        for (auto& m : writeRequest->messages()) {
+            Y_ABORT_UNLESS(i < m.seq_no());
+            i = m.seq_no();
+        }
+
         Processor->Write(std::move(clientMessage));
     }
 }

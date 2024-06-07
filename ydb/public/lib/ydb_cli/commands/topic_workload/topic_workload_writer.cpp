@@ -183,13 +183,13 @@ bool TTopicWorkloadWriterWorker::ProcessAckEvent(
     //! successfully. Here we just count acked messages to check, that everything
     //! written is confirmed.
     for (const auto& ack : event.Acks) {
-        WRITE_LOG(Params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << "Got ack for write " << AckedMessageId);
         AckedMessageId = ack.SeqNo;
+        WRITE_LOG(Params.Log, ELogPriority::TLOG_EMERG, TStringBuilder() << Params.ProducerId << " Got ack for write " << AckedMessageId);
 
         if (InflightMessages.empty() || InflightMessages.front().first != AckedMessageId)
         {
             *Params.ErrorFlag = 1;
-            WRITE_LOG(Params.Log, ELogPriority::TLOG_ERR, TStringBuilder() << "Unknown AckedMessageId " << AckedMessageId);
+            WRITE_LOG(Params.Log, ELogPriority::TLOG_ERR, TStringBuilder() << Params.ProducerId << "Unknown AckedMessageId " << AckedMessageId << " expected " << (InflightMessages.empty() ? 0ull : InflightMessages.front().first));
             return false;
         }
 
