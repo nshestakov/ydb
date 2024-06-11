@@ -833,9 +833,6 @@ void TWriteSessionImpl::OnReadDone(NYdbGrpc::TGrpcStatus&& grpcStatus, size_t co
         EventsQueue->PushEvent(std::move(event));
     }
 
-    LOG_LAZY(DbDriverState->Log, TLOG_DEBUG, LogPrefix() << "OnReadDone  DoRead" <<  doRead << " errorStatus.Ok()=" << errorStatus.Ok()
-            << " IsErrorMessage=" << IsErrorMessage(*ServerMessage) << " SeverMessage=" << ServerMessage->ShortDebugString());
-
     if (doRead)
         ReadFromProcessor();
 

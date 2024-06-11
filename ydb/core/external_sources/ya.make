@@ -1,3 +1,7 @@
+RECURSE(
+    object_storage
+)
+
 LIBRARY()
 
 SRCS(
@@ -8,7 +12,9 @@ SRCS(
 )
 
 PEERDIR(
+    ydb/core/external_sources/object_storage/inference
     ydb/library/actors/http
+    ydb/library/yql/providers/common/gateway
     library/cpp/regex/pcre
     library/cpp/scheme
     ydb/core/base
