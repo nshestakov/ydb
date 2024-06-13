@@ -27,6 +27,7 @@ void TTopicWorkloadReader::ReaderLoop(TTopicWorkloadReaderParams& params, TInsta
 
     auto describeTopicResult = TCommandWorkloadTopicDescribe::DescribeTopic(params.Database, params.TopicName, params.Driver);
     NYdb::NTopic::TReadSessionSettings settings;
+    settings.AutoscalingSupport(true);
 
     if (!params.ReadWithoutConsumer) {
         auto consumerName = TCommandWorkloadTopicDescribe::GenerateConsumerName(params.ConsumerPrefix, params.ConsumerIdx);
@@ -138,6 +139,8 @@ void TTopicWorkloadReader::ReaderLoop(TTopicWorkloadReaderParams& params, TInsta
                 } else {
                     destroyPartitionStreamEvent->Confirm();
                 }
+            } else if (auto* endPartitionStreamEvent = std::get_if<NYdb::NTopic::TReadSessionEvent::TEndPartitionSessionEvent>(&event)) {
+                endPartitionStreamEvent->Confirm();
             } else if (auto* closeSessionEvent = std::get_if<NYdb::NTopic::TSessionClosedEvent>(&event)) {
                 WRITE_LOG(params.Log, ELogPriority::TLOG_ERR, TStringBuilder() << "Read session closed: " << closeSessionEvent->DebugString());
                 *params.ErrorFlag = 1;
