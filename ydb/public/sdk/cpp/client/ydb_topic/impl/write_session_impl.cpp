@@ -958,7 +958,7 @@ TWriteSessionImpl::TProcessSrvMessageResult TWriteSessionImpl::ProcessServerMess
             TWriteSessionEvent::TAcksEvent acksEvent;
             const auto& batchWriteResponse = ServerMessage->write_response();
             LOG_LAZY(DbDriverState->Log,
-                TLOG_EMERG,
+                TLOG_DEBUG,
                 LogPrefix() << "Write session got write response: " << batchWriteResponse.ShortDebugString()
             );
             TWriteStat::TPtr writeStat = new TWriteStat{};
@@ -1018,7 +1018,7 @@ TWriteSessionImpl::TProcessSrvMessageResult TWriteSessionImpl::ProcessServerMess
 
 bool TWriteSessionImpl::CleanupOnAcknowledged(ui64 id, ui64 offset) {
     bool result = false;
-    LOG_LAZY(DbDriverState->Log, TLOG_EMERG, LogPrefix() << "Write session: acknoledged message " << id << " offset " << offset);
+    LOG_LAZY(DbDriverState->Log, TLOG_DEBUG, LogPrefix() << "Write session: acknoledged message " << id << " offset " << offset);
     UpdateTimedCountersImpl();
     const auto& sentFront = SentOriginalMessages.front();
     ui64 size = 0;
@@ -1399,7 +1399,7 @@ void TWriteSessionImpl::SendImpl() {
         }
         UpdateTokenIfNeededImpl();
         LOG_LAZY(DbDriverState->Log,
-            TLOG_EMERG,
+            TLOG_DEBUG,
             LogPrefix() << "Send " << writeRequest->messages_size() << " message(s) ("
                 << OriginalMessagesToSend.size() << " left), first sequence number is "
                 << writeRequest->messages(0).seq_no() << " last seqNo " << writeRequest->messages(writeRequest->messages_size() - 1).seq_no()

@@ -184,7 +184,7 @@ bool TTopicWorkloadWriterWorker::ProcessAckEvent(
     //! written is confirmed.
     for (const auto& ack : event.Acks) {
         AckedMessageId = ack.SeqNo;
-        WRITE_LOG(Params.Log, ELogPriority::TLOG_EMERG, TStringBuilder() << Params.ProducerId << " Got ack for write " << AckedMessageId);
+        WRITE_LOG(Params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << Params.ProducerId << " Got ack for write " << AckedMessageId);
 
         if (InflightMessages.empty() || InflightMessages.front().first != AckedMessageId)
         {
@@ -200,7 +200,7 @@ bool TTopicWorkloadWriterWorker::ProcessAckEvent(
 
         hasProgress = true;
 
-        WRITE_LOG(Params.Log, ELogPriority::TLOG_EMERG, TStringBuilder() << Params.ProducerId << " Ack PartitionId " << ack.Details->PartitionId << " Offset " << ack.Details->Offset << " InflightTime " << inflightTime << " WriteTime " << ack.Stat->WriteTime << " MinTimeInPartitionQueue " << ack.Stat->MinTimeInPartitionQueue << " MaxTimeInPartitionQueue " << ack.Stat->MaxTimeInPartitionQueue << " PartitionQuotedTime " << ack.Stat->PartitionQuotedTime << " TopicQuotedTime " << ack.Stat->TopicQuotedTime);
+        WRITE_LOG(Params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << Params.ProducerId << " Ack PartitionId " << ack.Details->PartitionId << " Offset " << ack.Details->Offset << " InflightTime " << inflightTime << " WriteTime " << ack.Stat->WriteTime << " MinTimeInPartitionQueue " << ack.Stat->MinTimeInPartitionQueue << " MaxTimeInPartitionQueue " << ack.Stat->MaxTimeInPartitionQueue << " PartitionQuotedTime " << ack.Stat->PartitionQuotedTime << " TopicQuotedTime " << ack.Stat->TopicQuotedTime);
     }
     return hasProgress;
 }
