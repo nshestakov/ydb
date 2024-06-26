@@ -3871,7 +3871,7 @@ void TPersQueue::SendEvTxCalcPredicateToPartitions(const TActorContext& ctx,
 void TPersQueue::SendEvTxCommitToPartitions(const TActorContext& ctx,
                                             TDistributedTransaction& tx)
 {
-    PQ_LOG_T("Commit tx " << tx.TxId);
+    PQ_LOG_TX("Commit tx " << tx.TxId);
 
     for (ui32 partitionId : tx.Partitions) {
         auto event = std::make_unique<TEvPQ::TEvTxCommit>(tx.Step, tx.TxId);
@@ -3889,7 +3889,7 @@ void TPersQueue::SendEvTxCommitToPartitions(const TActorContext& ctx,
 void TPersQueue::SendEvTxRollbackToPartitions(const TActorContext& ctx,
                                               TDistributedTransaction& tx)
 {
-    PQ_LOG_T("Rollback tx " << tx.TxId);
+    PQ_LOG_TX("Rollback tx " << tx.TxId);
 
     for (ui32 partitionId : tx.Partitions) {
         auto event = std::make_unique<TEvPQ::TEvTxRollback>(tx.Step, tx.TxId);
@@ -3977,7 +3977,7 @@ void TPersQueue::CheckTxState(const TActorContext& ctx,
     case NKikimrPQ::TTransaction::UNKNOWN:
         Y_ABORT_UNLESS(tx.TxId != Max<ui64>());
 
-        PQ_LOG_T("TxId="<< tx.TxId << ", State=UNKNOWN");
+        PQ_LOG_TX("TxId="<< tx.TxId << ", State=UNKNOWN");
 
         WriteTx(tx, NKikimrPQ::TTransaction::PREPARED);
         ScheduleProposeTransactionResult(tx);
@@ -3989,7 +3989,7 @@ void TPersQueue::CheckTxState(const TActorContext& ctx,
     case NKikimrPQ::TTransaction::PREPARING:
         Y_ABORT_UNLESS(tx.WriteInProgress);
 
-        PQ_LOG_T("TxId="<< tx.TxId << ", State=PREPARING");
+        PQ_LOG_TX("TxId="<< tx.TxId << ", State=PREPARING");
 
         tx.WriteInProgress = false;
 
@@ -4004,7 +4004,7 @@ void TPersQueue::CheckTxState(const TActorContext& ctx,
     case NKikimrPQ::TTransaction::PREPARED:
         Y_ABORT_UNLESS(tx.Step != Max<ui64>());
 
-        PQ_LOG_T("TxId="<< tx.TxId << ", State=PREPARED");
+        PQ_LOG_TX("TxId="<< tx.TxId << ", State=PREPARED");
 
         WriteTx(tx, NKikimrPQ::TTransaction::PLANNED);
 
@@ -4015,7 +4015,7 @@ void TPersQueue::CheckTxState(const TActorContext& ctx,
     case NKikimrPQ::TTransaction::PLANNING:
         Y_ABORT_UNLESS(tx.WriteInProgress);
 
-        PQ_LOG_T("TxId="<< tx.TxId << ", State=PLANNING");
+        PQ_LOG_TX("TxId="<< tx.TxId << ", State=PLANNING");
 
         tx.WriteInProgress = false;
 
@@ -4028,7 +4028,7 @@ void TPersQueue::CheckTxState(const TActorContext& ctx,
         [[fallthrough]];
 
     case NKikimrPQ::TTransaction::PLANNED:
-        PQ_LOG_T("TxId="<< tx.TxId << ", State=PLANNED" <<
+        PQ_LOG_TX("TxId="<< tx.TxId << ", State=PLANNED" <<
                  ", (!TxQueue.empty())=" << !TxQueue.empty());
 
         if (!TxQueue.empty() && (TxQueue.front().second == tx.TxId)) {
@@ -4060,7 +4060,7 @@ void TPersQueue::CheckTxState(const TActorContext& ctx,
     case NKikimrPQ::TTransaction::CALCULATING:
         Y_ABORT_UNLESS(tx.PartitionRepliesCount <= tx.PartitionRepliesExpected);
 
-        PQ_LOG_T("TxId="<< tx.TxId << ", State=CALCULATING" <<
+        PQ_LOG_TX("TxId="<< tx.TxId << ", State=CALCULATING" <<
                  ", tx.PartitionRepliesCount=" << tx.PartitionRepliesCount <<
                  ", tx.PartitionRepliesExpected=" << tx.PartitionRepliesExpected);
 
@@ -4092,7 +4092,7 @@ void TPersQueue::CheckTxState(const TActorContext& ctx,
     case NKikimrPQ::TTransaction::CALCULATED:
         Y_ABORT_UNLESS(tx.WriteInProgress);
 
-        PQ_LOG_T("TxId="<< tx.TxId << ", State=CALCULATED");
+        PQ_LOG_TX("TxId="<< tx.TxId << ", State=CALCULATED");
 
         tx.WriteInProgress = false;
 
@@ -4107,7 +4107,7 @@ void TPersQueue::CheckTxState(const TActorContext& ctx,
         //
         Y_ABORT_UNLESS(tx.ReadSetAcks.size() <= tx.Senders.size());
 
-        PQ_LOG_T("TxId="<< tx.TxId << ", State=WAIT_RS" <<
+        PQ_LOG_TX("TxId="<< tx.TxId << ", State=WAIT_RS" <<
                  ", tx.HaveParticipantsDecision()=" << tx.HaveParticipantsDecision());
 
         if (tx.HaveParticipantsDecision()) {
@@ -4129,7 +4129,7 @@ void TPersQueue::CheckTxState(const TActorContext& ctx,
     case NKikimrPQ::TTransaction::EXECUTING:
         Y_ABORT_UNLESS(tx.PartitionRepliesCount <= tx.PartitionRepliesExpected);
 
-        PQ_LOG_T("TxId="<< tx.TxId << ", State=EXECUTING" <<
+        PQ_LOG_TX("TxId="<< tx.TxId << ", State=EXECUTING" <<
                  ", tx.PartitionRepliesCount=" << tx.PartitionRepliesCount <<
                  ", tx.PartitionRepliesExpected=" << tx.PartitionRepliesExpected);
         if (tx.PartitionRepliesCount == tx.PartitionRepliesExpected) {
@@ -4161,7 +4161,7 @@ void TPersQueue::CheckTxState(const TActorContext& ctx,
         [[fallthrough]];
 
     case NKikimrPQ::TTransaction::EXECUTED:
-        PQ_LOG_T("TxId="<< tx.TxId << ", State=EXECUTED, tx.HaveAllRecipientsReceive()=" << tx.HaveAllRecipientsReceive());
+        PQ_LOG_TX("TxId="<< tx.TxId << ", State=EXECUTED, tx.HaveAllRecipientsReceive()=" << tx.HaveAllRecipientsReceive());
         if (tx.HaveAllRecipientsReceive()) {
             if (tx.WriteId.Defined()) {
                 BeginDeleteTx(tx);
