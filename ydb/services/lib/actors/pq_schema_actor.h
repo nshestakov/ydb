@@ -313,6 +313,7 @@ namespace NKikimr::NGRpcProxy::V1 {
 
             SetDatabase(proposal.get(), *this->Request_);
 
+/*
             if (this->Request_->GetSerializedToken().empty()) {
                 if (AppData(ctx)->PQConfig.GetRequireCredentialsInNewProtocol()) {
                     return ReplyWithError(Ydb::StatusIds::UNAUTHORIZED, Ydb::PersQueue::ErrorCode::ACCESS_DENIED,
@@ -321,7 +322,9 @@ namespace NKikimr::NGRpcProxy::V1 {
             } else {
                 proposal->Record.SetUserToken(this->Request_->GetSerializedToken());
             }
+*/
 
+            proposal->Record.SetUserToken(this->Request_->GetSerializedToken());
             static_cast<TDerived*>(this)->FillProposeRequest(*proposal, ctx, workingDir, name);
 
             if (!TActorBase::IsDead) {
@@ -338,7 +341,7 @@ namespace NKikimr::NGRpcProxy::V1 {
                 request->UserToken = new NACLib::TUserToken(token);
                 return true;
             }
-            return !(AppData()->PQConfig.GetRequireCredentialsInNewProtocol());
+            return true; // !(AppData()->PQConfig.GetRequireCredentialsInNewProtocol());
         }
 
         bool ProcessCdc(const NSchemeCache::TSchemeCacheNavigate::TEntry& response) override {
@@ -531,7 +534,7 @@ namespace NKikimr::NGRpcProxy::V1 {
 
         bool SetRequestToken(NSchemeCache::TSchemeCacheNavigate* request) const override {
             if (Request.Token.empty()) {
-                return !(AppData()->PQConfig.GetRequireCredentialsInNewProtocol());
+                return true; // !(AppData()->PQConfig.GetRequireCredentialsInNewProtocol());
             } else {
                 request->UserToken = new NACLib::TUserToken(Request.Token);
                 return true;

@@ -170,11 +170,11 @@ void TTopicOperationsScenario::CreateTopic(const TString& topic,
         settings.BeginConfigurePartitioningSettings()
             .MinActivePartitions(partitionCount)
             .MaxActivePartitions(maxPartitionCount)
-            .BeginConfigureAutoscalingSettings()
-                .Strategy(NTopic::EAutoscalingStrategy::ScaleUpAndDown)
-                .ThresholdTime(TDuration::Seconds(15))
-                .ScaleUpThresholdPercent(90)
-                .EndConfigureAutoscalingSettings()
+            .BeginConfigureAutoPartitioningSettings()
+                .Strategy(NTopic::EAutoPartitioningStrategy::ScaleUpAndDown)
+                .StabilizationWindow(TDuration::Seconds(15))
+                .UpUtilizationPercent(90)
+            .EndConfigureAutoPartitioningSettings()
             .EndConfigurePartitioningSettings();
     } else {
         settings.PartitioningSettings(partitionCount, partitionCount);
