@@ -8,6 +8,7 @@ SRCS(
     fetch_request_actor.cpp
     header.cpp
     heartbeat.cpp
+    http_app_common.cpp
     key.cpp
     metering_sink.cpp
     mirrorer.cpp
