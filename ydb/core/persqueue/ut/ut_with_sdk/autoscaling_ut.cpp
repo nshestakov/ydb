@@ -10,23 +10,6 @@
 
 #include <util/stream/output.h>
 
-static inline IOutputStream& operator<<(IOutputStream& o, std::set<size_t> t) {
-    o << "[" << JoinRange(", ", t.begin(), t.end()) << "]";
-    return o;
-}
-
-/*
-static inline IOutputStream& operator<<(IOutputStream& o, const std::optional<std::set<size_t>> t) {
-    if (t) {
-        o << t.value();
-    } else {
-        o << "[empty]";
-    }
-
-    return o;
-}
-*/
-
 namespace NKikimr {
 
 using namespace NYdb::NTopic;

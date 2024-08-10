@@ -4,6 +4,22 @@
 #include <ydb/core/tx/schemeshard/ut_helpers/helpers.h>
 #include <ydb/core/tx/schemeshard/ut_helpers/test_env.h>
 
+static inline IOutputStream& operator<<(IOutputStream& o, const std::set<size_t>& t) {
+    o << "[" << JoinRange(", ", t.begin(), t.end()) << "]";
+
+    return o;
+}
+
+static inline IOutputStream& operator<<(IOutputStream& o, const std::unordered_map<TString, std::set<size_t>>& t) {
+    o << "{";
+    for (auto& [k, v] : t) {
+        o << "{" << k <<" : " << v << "}, ";
+    }
+    o << "}";
+
+    return o;
+}
+
 namespace NKikimr {
 
 using namespace NYdb::NTopic;
@@ -44,12 +60,15 @@ struct TTestReadSession {
 
     static constexpr size_t SemCount = 1;
 
-    TTestReadSession(const TString& name, TTopicClient& client, size_t expectedMessagesCount = Max<size_t>(), bool autoCommit = true, std::set<ui32> partitions = {}, bool autoPartitioningSupport = true);
+    TTestReadSession(const TString& name, TTopicClient& client, size_t expectedMessagesCount = Max<size_t>(), bool autoCommit = true,
+                     std::set<ui32> partitions = {}, bool autoPartitioningSupport = true, std::vector<TString> topics = {TEST_TOPIC});
 
     void WaitAllMessages();
 
-    void Assert(const std::set<size_t>& expected, NThreading::TFuture<std::set<size_t>> f, const TString& message);
+    void Assert(const std::set<size_t>& expected, NThreading::TFuture<std::unordered_map<TString, std::set<size_t>>> f, const TString& message);
+    void Assert(const std::unordered_map<TString, std::set<size_t>>& expected, NThreading::TFuture<std::unordered_map<TString, std::set<size_t>>> f, const TString& message);
     void WaitAndAssertPartitions(std::set<size_t> partitions, const TString& message);
+    void WaitAndAssert(std::unordered_map<TString, std::set<size_t>> partitions, const TString& message);
 
     void Run();
     void Commit();
@@ -57,6 +76,8 @@ struct TTestReadSession {
     void Close();
 
     std::set<size_t> GetPartitions();
+    std::unordered_map<TString, std::set<size_t>> GetPartitionsA();
+
     void SetOffset(ui32 partitionId, std::optional<ui64> offset);
 
     struct TImpl {
@@ -72,11 +93,11 @@ struct TTestReadSession {
         bool AutoCommit;
 
         NThreading::TPromise<std::vector<MsgInfo>> DataPromise = NThreading::NewPromise<std::vector<MsgInfo>>();
-        NThreading::TPromise<std::set<size_t>> PartitionsPromise = NThreading::NewPromise<std::set<size_t>>();
+        NThreading::TPromise<std::unordered_map<TString, std::set<size_t>>> PartitionsPromise = NThreading::NewPromise<std::unordered_map<TString, std::set<size_t>>>();
 
         std::vector<MsgInfo> ReceivedMessages;
-        std::set<size_t> Partitions;
-        std::optional<std::set<size_t>> ExpectedPartitions;
+        std::unordered_map<TString, std::set<size_t>> Partitions;
+        std::optional<std::unordered_map<TString, std::set<size_t>>> ExpectedPartitions;
 
         std::set<size_t> EndedPartitions;
         std::vector<TReadSessionEvent::TEndPartitionSessionEvent> EndedPartitionEvents;
@@ -85,12 +106,12 @@ struct TTestReadSession {
         TSemaphore Semaphore;
 
         std::optional<ui64> GetOffset(ui32 partitionId) const;
-        void Modify(std::function<void (std::set<size_t>&)> modifier);
+        void Modify(std::function<void (std::unordered_map<TString, std::set<size_t>>&)> modifier);
 
         void Acquire();
         void Release();
 
-        NThreading::TFuture<std::set<size_t>> Wait(std::set<size_t> partitions, const TString& message);
+        NThreading::TFuture<std::unordered_map<TString, std::set<size_t>>> Wait(std::unordered_map<TString, std::set<size_t>> partitions, const TString& message);
     };
 
     std::shared_ptr<IReadSession> Session;

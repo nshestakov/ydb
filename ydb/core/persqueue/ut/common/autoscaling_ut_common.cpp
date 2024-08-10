@@ -1,11 +1,5 @@
 #include <ydb/core/persqueue/ut/common/autoscaling_ut_common.h>
 
-
-static inline IOutputStream& operator<<(IOutputStream& o, const std::set<size_t> t) {
-    o << "[" << JoinRange(", ", t.begin(), t.end()) << "]";
-
-    return o;
-}
 namespace NKikimr {
 
 using namespace NYdb::NTopic;
@@ -132,15 +126,17 @@ std::shared_ptr<ISimpleBlockingWriteSession> CreateWriteSession(TTopicClient& cl
 }
 
 
-TTestReadSession::TTestReadSession(const TString& name, TTopicClient& client, size_t expectedMessagesCount, bool autoCommit, std::set<ui32> partitions, bool autoPartitioningSupport) {
+TTestReadSession::TTestReadSession(const TString& name, TTopicClient& client, size_t expectedMessagesCount, bool autoCommit, std::set<ui32> partitions, bool autoPartitioningSupport, std::vector<TString> topics) {
     Impl = std::make_shared<TImpl>(name, autoCommit);
 
     Impl->Acquire();
 
     auto readSettings = TReadSessionSettings()
         .ConsumerName(TEST_CONSUMER)
-        .AppendTopics(TEST_TOPIC)
         .AutoPartitioningSupport(autoPartitioningSupport);
+    for (auto& topic : topics) {
+        readSettings.AppendTopics(topic);
+    }
     for (auto partitionId : partitions) {
         readSettings.Topics_[0].AppendPartitionIds(partitionId);
     }
@@ -179,8 +175,9 @@ TTestReadSession::TTestReadSession(const TString& name, TTopicClient& client, si
             (TReadSessionEvent::TStartPartitionSessionEvent& ev) mutable {
                 Cerr << ">>>>> " << impl->Name << " Received TStartPartitionSessionEvent message " << ev.DebugString() << Endl << Flush;
                 auto partitionId = ev.GetPartitionSession()->GetPartitionId();
+                auto topic = ev.GetPartitionSession()->GetTopicPath();
                 auto offset = impl->GetOffset(partitionId);
-                impl->Modify([&](std::set<size_t>& s) { s.insert(partitionId); });
+                impl->Modify([&](std::unordered_map<TString, std::set<size_t>>& s) { s[topic].insert(partitionId); });
                 if (offset) {
                     Cerr << ">>>>> " << impl->Name << " Start reading partition " << partitionId << " from offset " << offset.value() << Endl << Flush;
                     ev.Confirm(offset.value(), TMaybe<ui64>());
@@ -195,7 +192,8 @@ TTestReadSession::TTestReadSession(const TString& name, TTopicClient& client, si
             (TReadSessionEvent::TStopPartitionSessionEvent& ev) mutable {
                 Cerr << ">>>>> " << impl->Name << " Received TStopPartitionSessionEvent message " << ev.DebugString() << Endl << Flush;
                 auto partitionId = ev.GetPartitionSession()->GetPartitionId();
-                impl->Modify([&](std::set<size_t>& s) { s.erase(partitionId); });
+                auto topic = ev.GetPartitionSession()->GetTopicPath();
+                impl->Modify([&](std::unordered_map<TString, std::set<size_t>>& s) { s[topic].erase(partitionId); });
                 Cerr << ">>>>> " << impl->Name << " Stop reading partition " << partitionId << Endl << Flush;
                 ev.Confirm();
     });
@@ -205,7 +203,8 @@ TTestReadSession::TTestReadSession(const TString& name, TTopicClient& client, si
             (TReadSessionEvent::TPartitionSessionClosedEvent& ev) mutable {
                 Cerr << ">>>>> " << impl->Name << " Received TPartitionSessionClosedEvent message " << ev.DebugString() << Endl << Flush;
                 auto partitionId = ev.GetPartitionSession()->GetPartitionId();
-                impl->Modify([&](std::set<size_t>& s) { s.erase(partitionId); });
+                auto topic = ev.GetPartitionSession()->GetTopicPath();
+                impl->Modify([&](std::unordered_map<TString, std::set<size_t>>& s) { s[topic].erase(partitionId); });
                 Cerr << ">>>>> " << impl->Name << " Stop (closed) reading partition " << partitionId << Endl << Flush;
     });
 
@@ -255,12 +254,12 @@ void TTestReadSession::TImpl::Release() {
     Semaphore.Release();
 }
 
-NThreading::TFuture<std::set<size_t>> TTestReadSession::TImpl::Wait(std::set<size_t> partitions, const TString& message) {
+NThreading::TFuture<std::unordered_map<TString, std::set<size_t>>> TTestReadSession::TImpl::Wait(std::unordered_map<TString, std::set<size_t>> partitions, const TString& message) {
     Cerr << ">>>>> " << Name << " Wait partitions " << partitions << " " << message << Endl << Flush;
 
     with_lock (Lock) {
         ExpectedPartitions = partitions;
-        PartitionsPromise = NThreading::NewPromise<std::set<size_t>>();
+        PartitionsPromise = NThreading::NewPromise<std::unordered_map<TString, std::set<size_t>>>();
 
         if (Partitions == ExpectedPartitions.value()) {
             PartitionsPromise.SetValue(ExpectedPartitions.value());
@@ -270,14 +269,22 @@ NThreading::TFuture<std::set<size_t>> TTestReadSession::TImpl::Wait(std::set<siz
     return PartitionsPromise.GetFuture();
 }
 
-void TTestReadSession::Assert(const std::set<size_t>& expected, NThreading::TFuture<std::set<size_t>> f, const TString& message) {
-    auto actual = f.HasValue() ? f.GetValueSync() : GetPartitions();
+void TTestReadSession::Assert(const std::set<size_t>& expected, NThreading::TFuture<std::unordered_map<TString, std::set<size_t>>> f, const TString& message) {
+    Assert(std::unordered_map<TString, std::set<size_t>>{{TEST_TOPIC, expected}}, f, message);
+}
+
+void TTestReadSession::Assert(const std::unordered_map<TString, std::set<size_t>>& expected, NThreading::TFuture<std::unordered_map<TString, std::set<size_t>>> f, const TString& message) {
+    auto actual = f.HasValue() ? f.GetValueSync() : GetPartitionsA();
     Cerr << ">>>>> " << Impl->Name << " Partitions " << actual << " received #2" << Endl << Flush;
     UNIT_ASSERT_VALUES_EQUAL_C(expected, actual, message);
     Impl->Release();
 }
 
 void TTestReadSession::WaitAndAssertPartitions(std::set<size_t> partitions, const TString& message) {
+    WaitAndAssert(std::unordered_map<TString, std::set<size_t>>{{TEST_TOPIC, partitions}}, message);
+}
+
+void TTestReadSession::WaitAndAssert(std::unordered_map<TString, std::set<size_t>> partitions, const TString& message) {
     auto f = Impl->Wait(partitions, message);
     f.Wait(TDuration::Seconds(60));
     Assert(partitions, f, message);
@@ -297,12 +304,16 @@ void TTestReadSession::Close() {
 }
 
 std::set<size_t> TTestReadSession::GetPartitions() {
+    return GetPartitionsA()[TEST_TOPIC];
+}
+
+std::unordered_map<TString, std::set<size_t>> TTestReadSession::GetPartitionsA() {
     with_lock (Impl->Lock) {
         return Impl->Partitions;
     }
 }
 
-void TTestReadSession::TImpl::Modify(std::function<void (std::set<size_t>&)> modifier) {
+void TTestReadSession::TImpl::Modify(std::function<void (std::unordered_map<TString, std::set<size_t>>&)> modifier) {
     bool found = false;
 
     with_lock (Lock) {

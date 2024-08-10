@@ -1419,6 +1419,7 @@ void TReadSessionActor<UseMigrationProtocol>::Handle(TEvPersQueue::TEvReleasePar
     Y_ABORT_UNLESS(it != Topics.end());
 
     if (it->second.PipeClient != ActorIdFromProto(record.GetPipeClient())) {
+        LOG_INFO_S(ctx, NKikimrServices::PQ_READ_PROXY, PQ_LOG_PREFIX << " received TEvReleasePartition from unknown PipeClient");
         return;
     }
 

@@ -9,12 +9,6 @@
 #include <util/datetime/base.h>
 #include <util/stream/output.h>
 
-
-static inline IOutputStream& operator<<(IOutputStream& o, std::set<size_t> t) {
-    o << "[" << JoinRange(", ", t.begin(), t.end()) << "]";
-    return o;
-}
-
 namespace NKikimr {
 
 using namespace NYdb::NTopic;
@@ -111,45 +105,110 @@ Y_UNIT_TEST_SUITE(Balancing) {
         readSession0.Close();
     }
 
-/*
-    Y_UNIT_TEST(BalanceManySession) {
+    Y_UNIT_TEST(ManyTopics) {
         TTopicSdkTestSetup setup = CreateSetup();
-        setup.CreateTopic(TEST_TOPIC, TEST_CONSUMER, 1000);
+        setup.CreateTopic(TEST_TOPIC, TEST_CONSUMER, 10);
+        setup.CreateTopic("other-test-topic", TEST_CONSUMER, 10);
 
         TTopicClient client = setup.MakeClient();
 
-        auto CreateClient = [&](size_t i) {
-            auto readSettings = TReadSessionSettings()
-                .ConsumerName(TEST_CONSUMER)
-                .AppendTopics(TEST_TOPIC);
-            readSettings.Topics_[0].AppendPartitionIds(i % 1000);
+        TTestReadSession readSession0("Session-0", client, Max<size_t>(), true, {}, true, {TEST_TOPIC, "other-test-topic"});
+        Sleep(TDuration::Seconds(1));
 
-            return client.CreateReadSession(readSettings);
+        {
+            auto p = readSession0.GetPartitionsA();
+            UNIT_ASSERT_VALUES_EQUAL(10, p[TEST_TOPIC].size());
+            UNIT_ASSERT_VALUES_EQUAL(10, p["other-test-topic"].size());
+        }
+
+        TTestReadSession readSession1("Session-1", client, Max<size_t>(), true, {}, true, {TEST_TOPIC, "other-test-topic"});
+        Sleep(TDuration::Seconds(1));
+
+        {
+            auto p = readSession0.GetPartitionsA();
+            UNIT_ASSERT_VALUES_EQUAL(5, p[TEST_TOPIC].size());
+            UNIT_ASSERT_VALUES_EQUAL(5, p["other-test-topic"].size());
+        }
+        {
+            auto p = readSession1.GetPartitionsA();
+            UNIT_ASSERT_VALUES_EQUAL(5, p[TEST_TOPIC].size());
+            UNIT_ASSERT_VALUES_EQUAL(5, p["other-test-topic"].size());
+        }
+    }
+
+
+    //
+    // PQv1
+    //
+    Y_UNIT_TEST(PQv1_Simple) {
+        TTopicSdkTestSetup setup = CreateSetup();
+        setup.CreateTopic(TEST_TOPIC, TEST_CONSUMER, 10);
+
+        auto client = NYdb::NPersQueue::TPersQueueClient(*(setup.GetServer().AnnoyingClient->GetDriver()));
+
+        class TestReader {
+        public:
+            TestReader(const TString& name, NYdb::NPersQueue::TPersQueueClient& client) {
+                Partitions = std::make_shared<std::unordered_set<ui32>>();
+                Lock = std::make_shared<TMutex>();
+
+                NYdb::NPersQueue::TReadSessionSettings settings;
+                settings
+                    .ConsumerName(TEST_CONSUMER)
+                    .AppendTopics(TEST_TOPIC);
+
+                settings.EventHandlers_.CreatePartitionStreamHandler([lock=Lock, partitions=Partitions, name=name](NYdb::NPersQueue::TReadSessionEvent::TCreatePartitionStreamEvent& e) {
+                    Cerr << ">>>>> " << name << " Received TCreatePartitionStreamEvent " << e.DebugString() << Endl<< Flush;
+                    e.Confirm();
+                    with_lock (*lock) {
+                        partitions->insert(e.GetPartitionStream()->GetPartitionId());
+                    }
+
+                   // UNIT_ASSERT_C(!Partitions.insert(e.GetPartitionStream()->GetPartitionId()).second, "Partition already is readed");
+                });
+                settings.EventHandlers_.DestroyPartitionStreamHandler([lock=Lock, partitions=Partitions, name=name](NYdb::NPersQueue::TReadSessionEvent::TDestroyPartitionStreamEvent& e) {
+                    Cerr << ">>>>> " << name << " Received TDestroyPartitionStreamEvent " << e.DebugString() << Endl<< Flush;
+                    e.Confirm();
+                    with_lock (*lock) {
+                        partitions->erase(e.GetPartitionStream()->GetPartitionId());
+                    }
+
+                    //UNIT_ASSERT_C(!Partitions.erase(e.GetPartitionStream()->GetPartitionId()), "Partition is not readed");
+                });
+
+                ReadSession = client.CreateReadSession(settings);
+            }
+
+
+
+            std::shared_ptr<TMutex> Lock;
+            std::shared_ptr<std::unordered_set<ui32>> Partitions;
+            std::shared_ptr<NYdb::NPersQueue::IReadSession> ReadSession;
         };
 
-        Cerr << ">>>>> " << TInstant::Now() << " Begin create sessions" << Endl << Flush;
-
-        std::deque<std::shared_ptr<IReadSession>> sessions;
-        for (int i = 0; i < 2000; ++i) {
-            sessions.push_back(CreateClient(i));
+        TestReader session1("Session-1", client);
+        {
+            Sleep(TDuration::Seconds(1));
+            with_lock (*session1.Lock) {
+                UNIT_ASSERT_VALUES_EQUAL(10, session1.Partitions->size());
+            }
         }
 
-        for (int i = 0 ; i < 1000 ; ++i) {
-            Cerr << ">>>>> " << TInstant::Now() << " Close session " << i << Endl << Flush;
-
-            auto s = sessions.front();
-            s->Close();
-            sessions.pop_front();
-
-            Sleep(TDuration::MilliSeconds(50));
-
-            sessions.push_back(CreateClient(i * 7));
+        TestReader session2("Session-2", client);
+        {
+            Sleep(TDuration::Seconds(1));
+            with_lock (*session1.Lock) {
+                UNIT_ASSERT_VALUES_EQUAL(5, session1.Partitions->size());
+            }
+            with_lock (*session2.Lock) {
+                UNIT_ASSERT_VALUES_EQUAL(5, session2.Partitions->size());
+            }
         }
 
-        Cerr << ">>>>> " << TInstant::Now() << " Finished" << Endl << Flush;
-        Sleep(TDuration::Seconds(10));
+        session1.ReadSession->Close();
+        session2.ReadSession->Close();
     }
-*/
+
  }
 
 } // namespace NKikimr
