@@ -1,5 +1,6 @@
 #include "topic_workload_writer.h"
 #include "topic_workload_describe.h"
+#include "util/generic/ymath.h"
 
 #include <util/generic/overloaded.h>
 
@@ -80,9 +81,23 @@ bool TTopicWorkloadWriterWorker::WaitForInitSeqNo()
     return false;
 }
 
+ui64 MustBeWritten(const TTopicWorkloadWriterParams& params, TInstant startTimestamp, TInstant now) {
+    auto p = 5;
+
+    auto k = ((double)params.ByteRate) / params.ProducerThreadCount;
+    auto d = (now - startTimestamp).SecondsFloat();
+    auto x = d / params.TotalSec; // 0 <= x <= 1
+    // return k * d;
+    auto l =  k * d / params.TotalSec / 2;
+
+    auto s =  k * sin(x * PI * p) / p;
+
+    return (l + s) * d * p / (p + 1);
+}
+
 void TTopicWorkloadWriterWorker::Process(TInstant endTime) {
     Sleep(TDuration::Seconds((float)Params.WarmupSec * Params.WriterIdx / Params.ProducerThreadCount));
-    
+
     TInstant commitTime = TInstant::Now() + TDuration::Seconds(Params.CommitPeriod);
 
     StartTimestamp = Now();
@@ -117,7 +132,7 @@ void TTopicWorkloadWriterWorker::Process(TInstant endTime) {
 
             if (Params.ByteRate != 0)
             {
-                ui64 bytesMustBeWritten = (now - StartTimestamp).SecondsFloat() * Params.ByteRate / Params.ProducerThreadCount;
+                ui64 bytesMustBeWritten = MustBeWritten(Params, StartTimestamp, now);
                 writingAllowed &= BytesWritten < bytesMustBeWritten;
                 WRITE_LOG(Params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << "BytesWritten " << BytesWritten << " bytesMustBeWritten " << bytesMustBeWritten << " writingAllowed " << writingAllowed);
             }
