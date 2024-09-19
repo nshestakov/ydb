@@ -46,6 +46,23 @@ TString TTopicWorkloadWriterWorker::GetGeneratedMessage() const {
     return Params.GeneratedMessages[MessageId % GENERATED_MESSAGES_COUNT];
 }
 
+ui64 MustBeWritten(const TTopicWorkloadWriterParams& params, TInstant startTimestamp, TInstant now) {
+    auto p = 5;
+
+    auto k = ((double)params.ByteRate) / params.ProducerThreadCount;
+    auto d = (now - startTimestamp).SecondsFloat();
+    auto x = d / params.TotalSec; // 0 <= x <= 1
+    Y_UNUSED(x);
+    // return k * d;
+    auto l =  k * d * d / params.TotalSec / 2;
+
+    auto s =  0; // k * sin(x * PI * p) / p;
+
+    //Cerr << "params.ByteRate=" << params.ByteRate << " params.TotalSec=" << params.TotalSec << " duration=" << (now - startTimestamp).Seconds() << " l=" << l << Endl << Flush;
+
+    return (l + s) * p / (p + 1);
+}
+
 TInstant TTopicWorkloadWriterWorker::GetCreateTimestamp() const {
     return StartTimestamp + TDuration::Seconds((double)BytesWritten / Params.ByteRate * Params.ProducerThreadCount);
 }
@@ -79,20 +96,6 @@ bool TTopicWorkloadWriterWorker::WaitForInitSeqNo()
     }
 
     return false;
-}
-
-ui64 MustBeWritten(const TTopicWorkloadWriterParams& params, TInstant startTimestamp, TInstant now) {
-    auto p = 5;
-
-    auto k = ((double)params.ByteRate) / params.ProducerThreadCount;
-    auto d = (now - startTimestamp).SecondsFloat();
-    auto x = d / params.TotalSec; // 0 <= x <= 1
-    // return k * d;
-    auto l =  k * d / params.TotalSec / 2;
-
-    auto s =  k * sin(x * PI * p) / p;
-
-    return (l + s) * d * p / (p + 1);
 }
 
 void TTopicWorkloadWriterWorker::Process(TInstant endTime) {
@@ -134,7 +137,8 @@ void TTopicWorkloadWriterWorker::Process(TInstant endTime) {
             {
                 ui64 bytesMustBeWritten = MustBeWritten(Params, StartTimestamp, now);
                 writingAllowed &= BytesWritten < bytesMustBeWritten;
-                WRITE_LOG(Params.Log, ELogPriority::TLOG_DEBUG, TStringBuilder() << "BytesWritten " << BytesWritten << " bytesMustBeWritten " << bytesMustBeWritten << " writingAllowed " << writingAllowed);
+                WRITE_LOG(Params.Log, ELogPriority::TLOG_ERR, TStringBuilder() << "BytesWritten " << BytesWritten << " bytesMustBeWritten " << bytesMustBeWritten << " writingAllowed " << writingAllowed);
+               // Cerr << "BytesWritten " << BytesWritten << " bytesMustBeWritten " << bytesMustBeWritten << " writingAllowed " << writingAllowed << Endl << Flush;
             }
             else
             {
@@ -146,7 +150,7 @@ void TTopicWorkloadWriterWorker::Process(TInstant endTime) {
             {
                 TString data = GetGeneratedMessage();
 
-                TMaybe<TInstant> createTimestamp = Params.ByteRate == 0 ? TMaybe<TInstant>(Nothing()) : GetCreateTimestamp();
+                TMaybe<TInstant> createTimestamp = TMaybe<TInstant>(now); // Params.ByteRate == 0 ? TMaybe<TInstant>(Nothing()) : GetCreateTimestamp();
 
                 InflightMessages[MessageId] = createTimestamp.GetOrElse(now);
 
