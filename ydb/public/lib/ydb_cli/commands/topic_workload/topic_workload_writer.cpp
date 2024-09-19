@@ -6,6 +6,82 @@
 
 using namespace NYdb::NConsoleClient;
 
+class ConstantWorkloadScenario: public TTopicWorkloadWriterWorker::WorkloadScenario {
+public:
+    TInstant GetCreateTimestamp(const TTopicWorkloadWriterParams& params, TInstant startTimestamp, ui64 bytesWritten) override {
+        return startTimestamp + TDuration::Seconds((double)bytesWritten / params.ByteRate * params.ProducerThreadCount);
+    }
+
+    ui64 MustBeWritten(const TTopicWorkloadWriterParams& params, TInstant startTimestamp, TInstant now) override {
+        return (now - startTimestamp).SecondsFloat() * params.ByteRate / params.ProducerThreadCount;
+    }
+};
+
+class SimpleWorkloadScenario: public TTopicWorkloadWriterWorker::WorkloadScenario {
+public:
+    TInstant GetCreateTimestamp(const TTopicWorkloadWriterParams&, TInstant, ui64) override {
+        return Now();
+    }
+
+    ui64 MustBeWritten(const TTopicWorkloadWriterParams&, TInstant, TInstant) override {
+        return 0;
+    }
+};
+
+class LinearWorkloadScenario: public TTopicWorkloadWriterWorker::WorkloadScenario {
+public:
+    TInstant GetCreateTimestamp(const TTopicWorkloadWriterParams& params, TInstant startTimestamp, ui64 bytesWritten) override {
+        auto k = ((double)params.ByteRate) / params.ProducerThreadCount;
+        auto duration = sqrt(bytesWritten * 2 * params.TotalSec / k);
+
+        return startTimestamp + TDuration::Seconds(duration);
+    }
+
+    ui64 MustBeWritten(const TTopicWorkloadWriterParams& params, TInstant startTimestamp, TInstant now) override {
+        auto k = ((double)params.ByteRate) / params.ProducerThreadCount;
+        auto duration = (now - startTimestamp).SecondsFloat();
+
+        return  k * duration * duration / params.TotalSec / 2;
+    }
+};
+
+class StepwiseWorkloadScenario: public TTopicWorkloadWriterWorker::WorkloadScenario {
+    static constexpr size_t StepCount = 3;
+public:
+    TInstant GetCreateTimestamp(const TTopicWorkloadWriterParams& params, TInstant startTimestamp, ui64 bytesWritten) override {
+        auto stepDuration = params.TotalSec / StepCount;
+        auto stepHeight = ((double)params.ByteRate) / params.ProducerThreadCount / StepCount;
+
+        for (size_t i = 1; i < StepCount; ++i) {
+            auto v = stepHeight * stepDuration * i;
+            if (v > bytesWritten) {
+                auto duration = bytesWritten / stepHeight;
+                return startTimestamp + TDuration::Seconds(duration + (i - 1) * stepDuration);
+            }
+            bytesWritten -= v;
+        }
+
+        return Now();
+    }
+
+    ui64 MustBeWritten(const TTopicWorkloadWriterParams& params, TInstant startTimestamp, TInstant now) override {
+        auto stepDuration = params.TotalSec / StepCount;
+        auto stepHeight = ((double)params.ByteRate) / params.ProducerThreadCount / StepCount;
+
+        auto duration = (now - startTimestamp).Seconds();
+        auto step = duration / stepDuration + 1;
+
+        double result = 0;
+        for (size_t i = 1; i < step; ++i) {
+            result += stepHeight * stepDuration * i;
+        }
+
+        result += (duration - stepDuration * (step - 1)) * stepHeight * step;
+
+        return result;
+    }
+};
+
 TTopicWorkloadWriterWorker::TTopicWorkloadWriterWorker(
     TTopicWorkloadWriterParams&& params)
     : Params(params)
@@ -13,6 +89,16 @@ TTopicWorkloadWriterWorker::TTopicWorkloadWriterWorker(
     , StatsCollector(params.StatsCollector)
 
 {
+    if (!Params.ByteRate || to_lower(Params.Scenario) == "simple") {
+        Scenario = std::make_unique<SimpleWorkloadScenario>();
+    } else if (to_lower(Params.Scenario) == "linear") {
+        Scenario = std::make_unique<LinearWorkloadScenario>();
+    } else if (to_lower(Params.Scenario) == "stepwise") {
+        Scenario = std::make_unique<StepwiseWorkloadScenario>();
+    } else {
+        Scenario = std::make_unique<ConstantWorkloadScenario>();
+    }
+
     CreateWorker();
 }
 
@@ -44,27 +130,6 @@ std::vector<TString> TTopicWorkloadWriterWorker::GenerateMessages(size_t message
 
 TString TTopicWorkloadWriterWorker::GetGeneratedMessage() const {
     return Params.GeneratedMessages[MessageId % GENERATED_MESSAGES_COUNT];
-}
-
-ui64 MustBeWritten(const TTopicWorkloadWriterParams& params, TInstant startTimestamp, TInstant now) {
-    auto p = 5;
-
-    auto k = ((double)params.ByteRate) / params.ProducerThreadCount;
-    auto d = (now - startTimestamp).SecondsFloat();
-    auto x = d / params.TotalSec; // 0 <= x <= 1
-    Y_UNUSED(x);
-    // return k * d;
-    auto l =  k * d * d / params.TotalSec / 2;
-
-    auto s =  0; // k * sin(x * PI * p) / p;
-
-    //Cerr << "params.ByteRate=" << params.ByteRate << " params.TotalSec=" << params.TotalSec << " duration=" << (now - startTimestamp).Seconds() << " l=" << l << Endl << Flush;
-
-    return (l + s) * p / (p + 1);
-}
-
-TInstant TTopicWorkloadWriterWorker::GetCreateTimestamp() const {
-    return StartTimestamp + TDuration::Seconds((double)BytesWritten / Params.ByteRate * Params.ProducerThreadCount);
 }
 
 bool TTopicWorkloadWriterWorker::WaitForInitSeqNo()
@@ -112,7 +177,7 @@ void TTopicWorkloadWriterWorker::Process(TInstant endTime) {
         if (now > endTime)
             break;
 
-        TDuration timeToNextMessage = Params.ByteRate == 0 ? TDuration::Zero() : GetCreateTimestamp() - now;
+        TDuration timeToNextMessage = Scenario->GetCreateTimestamp(Params, StartTimestamp, BytesWritten) - now;
 
         if (timeToNextMessage > TDuration::Zero())
         {
@@ -135,10 +200,10 @@ void TTopicWorkloadWriterWorker::Process(TInstant endTime) {
 
             if (Params.ByteRate != 0)
             {
-                ui64 bytesMustBeWritten = MustBeWritten(Params, StartTimestamp, now);
+                ui64 bytesMustBeWritten = Scenario->MustBeWritten(Params, StartTimestamp, now);
                 writingAllowed &= BytesWritten < bytesMustBeWritten;
                 WRITE_LOG(Params.Log, ELogPriority::TLOG_ERR, TStringBuilder() << "BytesWritten " << BytesWritten << " bytesMustBeWritten " << bytesMustBeWritten << " writingAllowed " << writingAllowed);
-               // Cerr << "BytesWritten " << BytesWritten << " bytesMustBeWritten " << bytesMustBeWritten << " writingAllowed " << writingAllowed << Endl << Flush;
+                //Cerr << "BytesWritten " << BytesWritten << " bytesMustBeWritten " << bytesMustBeWritten << " writingAllowed " << writingAllowed << Endl;
             }
             else
             {
@@ -150,7 +215,7 @@ void TTopicWorkloadWriterWorker::Process(TInstant endTime) {
             {
                 TString data = GetGeneratedMessage();
 
-                TMaybe<TInstant> createTimestamp = TMaybe<TInstant>(now); // Params.ByteRate == 0 ? TMaybe<TInstant>(Nothing()) : GetCreateTimestamp();
+                TMaybe<TInstant> createTimestamp = Scenario->GetCreateTimestamp(Params, StartTimestamp, BytesWritten);
 
                 InflightMessages[MessageId] = createTimestamp.GetOrElse(now);
 

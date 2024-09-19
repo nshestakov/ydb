@@ -77,6 +77,8 @@ public:
     bool UseTableSelect = true;
     bool ReadWithoutConsumer = false;
 
+    TString Scanario = "constant";
+
 protected:
     void CreateTopic(const TString& database,
                      const TString& topic,

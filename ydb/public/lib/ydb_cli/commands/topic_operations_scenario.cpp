@@ -276,7 +276,8 @@ void TTopicOperationsScenario::StartProducerThreads(std::vector<std::future<void
             .UseTransactions = UseTransactions,
             .UseAutoPartitioning = useAutoPartitioning,
             .CommitPeriod = CommitPeriod,
-            .CommitMessages = CommitMessages
+            .CommitMessages = CommitMessages,
+            .Scenario = Scanario
         };
 
         threads.push_back(std::async([writerParams = std::move(writerParams)]() mutable { TTopicWorkloadWriterWorker::RetryableWriterLoop(writerParams); }));

@@ -68,6 +68,11 @@ void TCommandWorkloadTopicRunFull::Config(TConfig& config)
         .Hidden()
         .StoreTrue(&Scenario.Direct);
 
+    config.Opts->AddLongOption("scenario", "Algorithm for changing the volume of writed data. Possible values: constant, linear, stepwise")
+        .Hidden()
+        .DefaultValue("constant")
+        .StoreResult(&Scenario.Scanario);
+
     config.Opts->MutuallyExclusive("message-rate", "byte-rate");
 
     config.IsNetworkIntensive = true;

@@ -37,6 +37,7 @@ namespace NYdb {
             bool UseTableUpsert = false;
             size_t CommitPeriod = 15;
             size_t CommitMessages = 1'000'000;
+            TString Scenario = "constant";
         };
 
         class TTopicWorkloadWriterWorker {
@@ -44,6 +45,15 @@ namespace NYdb {
             static void RetryableWriterLoop(TTopicWorkloadWriterParams& params);
             static void WriterLoop(TTopicWorkloadWriterParams& params, TInstant endTime);
             static std::vector<TString> GenerateMessages(size_t messageSize);
+
+            class WorkloadScenario {
+            public:
+                virtual TInstant GetCreateTimestamp(const TTopicWorkloadWriterParams& params, TInstant startTimestamp, ui64 bytesWritten) = 0;
+                virtual ui64 MustBeWritten(const TTopicWorkloadWriterParams& params, TInstant startTimestamp, TInstant now) = 0;
+
+                virtual ~WorkloadScenario() = default;
+            };
+
         private:
             TTopicWorkloadWriterWorker(TTopicWorkloadWriterParams&& params);
             ~TTopicWorkloadWriterWorker();
@@ -87,6 +97,8 @@ namespace NYdb {
             // SeqNo - CreateTime
             THashMap<ui64, TInstant> InflightMessages;
             bool WaitForCommitTx = false;
+
+            std::unique_ptr<WorkloadScenario> Scenario;
         };
     }
 }
