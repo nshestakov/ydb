@@ -82,6 +82,23 @@ public:
     }
 };
 
+class SinWorkloadScenario: public TTopicWorkloadWriterWorker::WorkloadScenario {
+public:
+    TInstant GetCreateTimestamp(const TTopicWorkloadWriterParams&, TInstant, ui64) override {
+        return Now();
+    }
+
+    ui64 MustBeWritten(const TTopicWorkloadWriterParams& params, TInstant startTimestamp, TInstant now) override {
+        auto height = ((double)params.ByteRate) / params.ProducerThreadCount / 2;
+        auto duration = (now - startTimestamp).Seconds();
+
+        auto x = ((double)params.TotalSec) / duration * 2 - 1;
+
+        //return (sin(x * PI / 2) + 1) * height;
+        return height * (-2 / PI * cos(PI / 2 * x) + x) + height;
+    }
+};
+
 TTopicWorkloadWriterWorker::TTopicWorkloadWriterWorker(
     TTopicWorkloadWriterParams&& params)
     : Params(params)
@@ -93,6 +110,8 @@ TTopicWorkloadWriterWorker::TTopicWorkloadWriterWorker(
         Scenario = std::make_unique<SimpleWorkloadScenario>();
     } else if (to_lower(Params.Scenario) == "linear") {
         Scenario = std::make_unique<LinearWorkloadScenario>();
+    } else if (to_lower(Params.Scenario) == "sin") {
+        Scenario = std::make_unique<SinWorkloadScenario>();
     } else if (to_lower(Params.Scenario) == "stepwise") {
         Scenario = std::make_unique<StepwiseWorkloadScenario>();
     } else {
