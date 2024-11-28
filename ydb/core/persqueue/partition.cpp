@@ -404,7 +404,7 @@ bool TPartition::CleanUp(TEvKeyValue::TEvRequest* request, const TActorContext& 
 }
 
 bool TPartition::CleanUpBlobs(TEvKeyValue::TEvRequest *request, const TActorContext& ctx) {
-    if (StartOffset == EndOffset || DataKeysBody.size() <= 1) {
+    if (StartOffset == EndOffset) {
         return false;
     }
 
@@ -416,16 +416,20 @@ bool TPartition::CleanUpBlobs(TEvKeyValue::TEvRequest *request, const TActorCont
     const ui64 importantConsumerMinOffset = ImportantClientsMinOffset();
 
     bool hasDrop = false;
-    while(DataKeysBody.size() > 1) {
-        auto& nextKey = DataKeysBody[1].Key;
-        if (importantConsumerMinOffset < nextKey.GetOffset()) {
-            // The first message in the next blob was not read by an important consumer.
-            // We also save the current blob, since not all messages from it could be read.
-            break;
-        }
-        if (importantConsumerMinOffset == nextKey.GetOffset() && nextKey.GetPartNo() != 0) {
-            // We save all the blobs that contain parts of the last message read by an important consumer.
-            break;
+    TKey lastKey;
+    while(DataKeysBody.size() > 1 || (!DataKeysBody.empty() && now < EndWriteTimestamp + lifetimeLimit)) {
+        TKey nextKey;
+        if (DataKeysBody.size() > 1) {
+            nextKey = DataKeysBody[1].Key;
+            if (importantConsumerMinOffset < nextKey.GetOffset()) {
+                // The first message in the next blob was not read by an important consumer.
+                // We also save the current blob, since not all messages from it could be read.
+                break;
+            }
+            if (importantConsumerMinOffset == nextKey.GetOffset() && nextKey.GetPartNo() != 0) {
+                // We save all the blobs that contain parts of the last message read by an important consumer.
+                break;
+            }
         }
 
         auto& firstKey = DataKeysBody.front();
@@ -441,27 +445,34 @@ bool TPartition::CleanUpBlobs(TEvKeyValue::TEvRequest *request, const TActorCont
         }
 
         BodySize -= firstKey.Size;
+        lastKey = DataKeysBody.front().Key;
         DataKeysBody.pop_front();
 
-        if (!GapOffsets.empty() && nextKey.GetOffset() == GapOffsets.front().second) {
-            GapSize -= GapOffsets.front().second - GapOffsets.front().first;
-            GapOffsets.pop_front();
+        if (DataKeysBody.size() > 1) {
+            if (!GapOffsets.empty() && nextKey.GetOffset() == GapOffsets.front().second) {
+                GapSize -= GapOffsets.front().second - GapOffsets.front().first;
+                GapOffsets.pop_front();
+            }
+        } else {
+            GapSize = 0;
+            GapOffsets.clear();
         }
 
         hasDrop = true;
     }
 
-    Y_ABORT_UNLESS(!DataKeysBody.empty());
-
     if (!hasDrop) {
         return false;
     }
 
-    const auto& lastKey = DataKeysBody.front().Key;
-
-    StartOffset = lastKey.GetOffset();
-    if (lastKey.GetPartNo() > 0) {
-        ++StartOffset;
+    if (!DataKeysBody.empty()) {
+        auto& lk = DataKeysBody.front().Key;
+        StartOffset = lk.GetOffset();
+        if (lk.GetPartNo() > 0) {
+            ++StartOffset;
+        }
+    } else {
+        StartOffset = EndOffset; // TODO ????
     }
 
     TKey firstKey(TKeyPrefix::TypeData, Partition, 0, 0, 0, 0); //will drop all that could not be dropped before of case of full disks
@@ -471,7 +482,7 @@ bool TPartition::CleanUpBlobs(TEvKeyValue::TEvRequest *request, const TActorCont
     range->SetFrom(firstKey.Data(), firstKey.Size());
     range->SetIncludeFrom(true);
     range->SetTo(lastKey.Data(), lastKey.Size());
-    range->SetIncludeTo(StartOffset == EndOffset);
+    range->SetIncludeTo(true);
 
     return true;
 }
