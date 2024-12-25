@@ -910,6 +910,7 @@ struct TCreateTransferSettings {
 
 struct TAlterTransferSettings {
     TString Name;
+    std::optional<TString> TransformLambda;
     TTransferSettings Settings;
 };
 

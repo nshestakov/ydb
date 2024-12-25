@@ -1628,6 +1628,7 @@ namespace {
         }
 
         if (node.GetChildrenCount() == 0) {
+            Y_ABORT_UNLESS(node.GetChildrenCount(), "%s", node.ToString().c_str());
             ctx.AddError(node, "Empty list, did you forget quote?");
             return {};
         }

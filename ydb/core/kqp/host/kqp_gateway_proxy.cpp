@@ -2675,6 +2675,10 @@ public:
                     static_cast<NKikimrReplication::TReplicationState::TDone::EFailoverMode>(done->FailoverMode));
             }
 
+            if (settings.TransformLambda) {
+                op.SetTransferTransformLambda(settings.TransformLambda.value());
+            }
+
             if (settings.Settings.ConnectionString || settings.Settings.Endpoint || settings.Settings.Database ||
                     settings.Settings.OAuthToken || settings.Settings.StaticCredentials) {
                 auto& config = *op.MutableConfig();

@@ -915,7 +915,7 @@ create_transfer_stmt: CREATE TRANSFER object_ref
 transfer_settings: transfer_settings_entry (COMMA transfer_settings_entry)*;
 transfer_settings_entry: an_id EQUALS expr;
 
-alter_transfer_stmt: ALTER TRANSFER object_ref alter_transfer_action (COMMA alter_transfer_action)*;
+alter_transfer_stmt: ALTER TRANSFER object_ref (USING lambda)? alter_transfer_action (COMMA alter_transfer_action)*;
 alter_transfer_action:
     alter_transfer_set_setting
 ;
