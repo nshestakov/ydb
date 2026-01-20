@@ -220,6 +220,38 @@ void ColumnType_Date(const std::string& tableType) {
     });
 }
 
+void ColumnType_Date64(const std::string& tableType) {
+    MainTestCase(std::nullopt, tableType).Run({
+        .TableDDL = R"(
+            CREATE TABLE `%s` (
+                Key Uint64 NOT NULL,
+                Message Date64,
+                PRIMARY KEY (Key)
+            )  WITH (
+                STORE = %s
+            );
+        )",
+
+        .Lambda = R"(
+            $l = ($x) -> {
+                return [
+                    <|
+                        Key:CAST($x._offset AS Uint64),
+                        Message: CAST($x._data AS Date64)
+                    |>
+                ];
+            };
+        )",
+
+        .Messages = {{"2025-02-21"}},
+
+        .Expectations = {{
+            _C("Key", ui64(0)),
+            _C("Message", TInstant::ParseIso8601("2025-02-21")),
+        }}
+    });
+}
+
 void ColumnType_Decimal(const std::string& tableType) {
     MainTestCase(std::nullopt, tableType).Run({
         .TableDDL = R"(
