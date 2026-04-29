@@ -105,6 +105,10 @@ struct THttpRequestContext {
     void RequestBodyToProto(NProtoBuf::Message* request);
 };
 
+template<typename TRequest>
+TRequest DeserializeRequest(const THttpRequestContext& context);
+
+
 class IHttpRequestProcessor {
 public:
     virtual ~IHttpRequestProcessor() = default;

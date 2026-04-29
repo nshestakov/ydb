@@ -78,6 +78,9 @@ namespace NKikimr::NHttpProxy {
     using namespace Ydb::DataStreams::V1;
     using namespace NYdb::NDataStreams::V1;
 
+    template<typename TResponse>
+    void ProtoToXml(const TResponse& message, TString& out);
+
     TException MapToException(NYdb::EStatus status, const TString& method, size_t issueCode = ISSUE_CODE_ERROR) {
         auto IssueCode = static_cast<NYds::EErrorCodes>(issueCode);
 
@@ -1272,8 +1275,25 @@ namespace NKikimr::NHttpProxy {
             void HandleGrpcResponse(TEvServerlessProxy::TEvGrpcRequestResult::TPtr ev,
                                     const TActorContext& ctx) {
                 if (ev->Get()->Status->IsSuccess()) {
-                    ProtoToJson(*ev->Get()->Message, HttpContext.ResponseData.Body,
-                                HttpContext.ContentType == MIME_CBOR);
+                    switch (Request.MimeType()) {
+                        case MIME_JSON:
+                        case MIME_CBOR:
+                            ProtoToJson(
+                                *ev->Get()->Message,
+                                HttpContext.ResponseData.Body,
+                                HttpContext.ContentType == MIME_CBOR
+                            );
+                            break;
+                        case MIME_XML:
+                            ProtoToXml(
+                                *ev->Get()->Message,
+                                HttpContext.ResponseData.Body
+                            );
+                            break;
+                        default:
+                            break;
+                    }
+
                     FillOutputCustomMetrics<TProtoResult>(
                         *(dynamic_cast<TProtoResult*>(ev->Get()->Message.Get())), HttpContext, ctx);
                     ctx.Send(MakeMetricsServiceID(),
