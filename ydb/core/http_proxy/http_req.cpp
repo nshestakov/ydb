@@ -1513,12 +1513,12 @@ namespace NKikimr::NHttpProxy {
 
 #undef DECLARE_SQS_TOPIC_PROCESSOR_QUEUE_UNKNOWN
 
-#define DECLARE_SQS_TOPIC_PROCESSOR_QUEUE_KNOWN(name) Name2SqsTopicProcessor[#name] = MakeHolder<TSqsTopicHttpRequestProcessor< \
-                                                          Ydb::SqsTopic::V1::SqsTopicService,                                   \
-                                                          Ydb::Ymq::V1::name##Request,                                     \
-                                                          Ydb::Ymq::V1::name##Response,                                    \
-                                                          Ydb::Ymq::V1::name##Result,                                      \
-                                                          decltype(&Ydb::SqsTopic::V1::SqsTopicService::Stub::AsyncSqsTopic##name),       \
+#define DECLARE_SQS_TOPIC_PROCESSOR_QUEUE_KNOWN(name) Name2SqsTopicProcessor[#name] = MakeHolder<TSqsTopicHttpRequestProcessor<     \
+                                                          Ydb::SqsTopic::V1::SqsTopicService,                                       \
+                                                          Ydb::Ymq::V1::name##Request,                                              \
+                                                          Ydb::Ymq::V1::name##Response,                                             \
+                                                          Ydb::Ymq::V1::name##Result,                                               \
+                                                          decltype(&Ydb::SqsTopic::V1::SqsTopicService::Stub::AsyncSqsTopic##name), \
                                                           NKikimr::NGRpcService::TEvSqsTopic##name##Request>>(#name, &Ydb::SqsTopic::V1::SqsTopicService::Stub::AsyncSqsTopic##name)
         DECLARE_SQS_TOPIC_PROCESSOR_QUEUE_KNOWN(CreateQueue);
         DECLARE_SQS_TOPIC_PROCESSOR_QUEUE_KNOWN(DeleteMessage);
@@ -1569,7 +1569,7 @@ namespace NKikimr::NHttpProxy {
         }
         else if (name.empty()) {
             context.ResponseData.Status = NYdb::EStatus::UNSUPPORTED;
-            context.ResponseData.ErrorText = TStringBuilder() << "Unknown method name " << name;
+            context.ResponseData.ErrorText = TStringBuilder() << "Unknown method name";
             context.DoReply(ctx, static_cast<size_t>(NYds::EErrorCodes::MISSING_ACTION));
         }
         else {

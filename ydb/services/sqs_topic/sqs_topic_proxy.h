@@ -16,7 +16,12 @@ namespace NKikimr::NSqsTopic {
     };
 
     template <class TRequest, class TResponse>
-    using TGrpcRequestOperationCallAlias = NKikimr::NGRpcService::TGrpcRequestOperationCall<TRequest, TResponse, NKikimr::NGRpcService::NRuntimeEvents::EType::COMMON, NKikimr::NSqsTopic::TYdbGrpcMethodAccessorTraits<TRequest, TResponse, true>>;
+    using TGrpcRequestOperationCallAlias = NKikimr::NGRpcService::TGrpcRequestOperationCall<
+        TRequest,
+        TResponse,
+        NKikimr::NGRpcService::NRuntimeEvents::EType::COMMON,
+        NKikimr::NSqsTopic::TYdbGrpcMethodAccessorTraits<TRequest, TResponse, true>
+    >;
 } // namespace NKikimr::NSqsTopic
 
 namespace NKikimr::NGRpcService {
