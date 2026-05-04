@@ -4,6 +4,7 @@
 #include "json_proto_conversion.h"
 #include "custom_metrics.h"
 #include "exceptions_mapping.h"
+#include "serialization.h"
 
 #include <ydb/library/actors/http/http_proxy.h>
 #include <library/cpp/cgiparam/cgiparam.h>
@@ -535,7 +536,7 @@ namespace NKikimr::NHttpProxy {
                 PoolId = ctx.SelfID.PoolID();
                 StartTime = ctx.Now();
                 try {
-                    HttpContext.RequestBodyToProto(&Request);
+                    Deserialize(HttpContext, Request);
                     auto queueUrl = QueueUrlExtractor(Request);
                     if (!queueUrl.empty()) {
                         auto cloudIdAndResourceId = NKikimr::NYmq::CloudIdAndResourceIdFromQueueUrl(queueUrl);
@@ -1000,7 +1001,7 @@ namespace NKikimr::NHttpProxy {
             void Bootstrap(const TActorContext& ctx) {
                 StartTime = ctx.Now();
                 try {
-                    HttpContext.RequestBodyToProto(&Request);
+                    Deserialize(HttpContext, Request);
                 } catch (const NKikimr::NSQS::TSQSException& e) {
                     NYds::EErrorCodes issueCode = NYds::EErrorCodes::OK;
                     if (e.ErrorClass.ErrorCode == "MissingParameter")
@@ -1275,7 +1276,7 @@ namespace NKikimr::NHttpProxy {
             void HandleGrpcResponse(TEvServerlessProxy::TEvGrpcRequestResult::TPtr ev,
                                     const TActorContext& ctx) {
                 if (ev->Get()->Status->IsSuccess()) {
-                    switch (Request.MimeType()) {
+                    switch (HttpContext.ContentType) {
                         case MIME_JSON:
                         case MIME_CBOR:
                             ProtoToJson(
@@ -1284,12 +1285,13 @@ namespace NKikimr::NHttpProxy {
                                 HttpContext.ContentType == MIME_CBOR
                             );
                             break;
-                        case MIME_XML:
-                            ProtoToXml(
-                                *ev->Get()->Message,
-                                HttpContext.ResponseData.Body
-                            );
-                            break;
+                        // TODO: implement XML deserialization
+                        // case MIME_XML:
+                        //     ProtoToXml(
+                        //         *ev->Get()->Message,
+                        //         HttpContext.ResponseData.Body
+                        //     );
+                        //     break;
                         default:
                             break;
                     }
@@ -1370,7 +1372,7 @@ namespace NKikimr::NHttpProxy {
             void Bootstrap(const TActorContext& ctx) {
                 StartTime = ctx.Now();
                 try {
-                    HttpContext.RequestBodyToProto(&Request);
+                    Deserialize(HttpContext, Request);
                 } catch (const NKikimr::NSQS::TSQSException& e) {
                     NYds::EErrorCodes issueCode = NYds::EErrorCodes::OK;
                     if (e.ErrorClass.ErrorCode == "MissingParameter")
@@ -1859,47 +1861,6 @@ namespace NKikimr::NHttpProxy {
         case MIME_JSON:
             return NJson::WriteJson(Body, false);
         }
-        }
-    }
-
-    void THttpRequestContext::RequestBodyToProto(NProtoBuf::Message* request) {
-        TStringBuf requestStr = Request->Body;
-        if (requestStr.empty()) {
-            throw NKikimr::NSQS::TSQSException(NKikimr::NSQS::NErrors::MALFORMED_QUERY_STRING) <<
-                "Empty body";
-        }
-
-        // recursive is default setting
-        if (auto listStreamsRequest = dynamic_cast<Ydb::DataStreams::V1::ListStreamsRequest*>(request)) {
-            listStreamsRequest->set_recurse(true);
-        }
-
-        switch (ContentType) {
-        case MIME_CBOR: {
-            auto fromCbor = nlohmann::json::from_cbor(requestStr.begin(), requestStr.end(),
-                                                      true, false,
-                                                      nlohmann::json::cbor_tag_handler_t::ignore);
-            if (fromCbor.is_discarded()) {
-                throw NKikimr::NSQS::TSQSException(NKikimr::NSQS::NErrors::MALFORMED_QUERY_STRING) <<
-                    "Can not parse request body from CBOR";
-            } else {
-                NlohmannJsonToProto(fromCbor, request);
-            }
-            break;
-        }
-        case MIME_JSON: {
-            auto fromJson = nlohmann::json::parse(requestStr, nullptr, false);
-            if (fromJson.is_discarded()) {
-                throw NKikimr::NSQS::TSQSException(NKikimr::NSQS::NErrors::MALFORMED_QUERY_STRING) <<
-                    "Can not parse request body from JSON";
-            } else {
-                NlohmannJsonToProto(fromJson, request);
-            }
-            break;
-        }
-        default:
-            throw NKikimr::NSQS::TSQSException(NKikimr::NSQS::NErrors::MALFORMED_QUERY_STRING) <<
-                "Unknown ContentType";
         }
     }
 

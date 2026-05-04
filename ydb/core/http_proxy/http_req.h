@@ -102,7 +102,6 @@ struct THttpRequestContext {
     THolder<NKikimr::NSQS::TAwsRequestSignV4> GetSignature();
     void DoReply(const TActorContext& ctx, size_t issueCode = ISSUE_CODE_GENERIC);
     void ParseHeaders(TStringBuf headers);
-    void RequestBodyToProto(NProtoBuf::Message* request);
 };
 
 template<typename TRequest>

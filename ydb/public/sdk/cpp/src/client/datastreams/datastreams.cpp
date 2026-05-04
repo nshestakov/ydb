@@ -1,3 +1,5 @@
+#include <ydb/core/http_proxy/serialization.h>
+
 #include <ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/datastreams/datastreams.h>
 
 #define INCLUDE_YDB_INTERNAL_H
@@ -10,6 +12,15 @@
 #include <ydb/public/sdk/cpp/src/client/common_client/impl/client.h>
 
 #include <ydb/public/api/grpc/draft/ydb_datastreams_v1.grpc.pb.h>
+
+namespace NKikimr::NHttpProxy {
+
+template<>
+void Prepare(Ydb::DataStreams::V1::ListStreamsRequest& value) {
+    value.set_recurse(true);
+}
+
+}
 
 namespace NYdb::inline Dev::NDataStreams::V1 {
 
