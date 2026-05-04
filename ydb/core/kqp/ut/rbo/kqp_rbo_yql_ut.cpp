@@ -190,7 +190,7 @@ Y_UNIT_TEST_SUITE(KqpRboYql) {
     }
 
     Y_UNIT_TEST_TWIN(Filter, ColumnStore) {
-        TestFilter(true);
+        TestFilter(ColumnStore);
     }
 
     Y_UNIT_TEST(Explain) {
@@ -2659,7 +2659,7 @@ Y_UNIT_TEST_SUITE(KqpRboYql) {
                     .ExtractValueSync();
             UNIT_ASSERT_VALUES_EQUAL(result.GetStatus(), EStatus::SUCCESS);
             auto ast = *result.GetStats()->GetAst();
-            UNIT_ASSERT_VALUES_EQUAL(CountNumberOfCallables(ast, "TopSort"), 2);
+            UNIT_ASSERT_VALUES_EQUAL(CountNumberOfCallables(ast, "TopSort"), 1);
 
             result =
                 session.ExecuteQuery(query, NYdb::NQuery::TTxControl::NoTx(), NYdb::NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Execute))
@@ -2747,7 +2747,7 @@ Y_UNIT_TEST_SUITE(KqpRboYql) {
             UNIT_ASSERT_VALUES_EQUAL(result.GetStatus(), EStatus::SUCCESS);
             auto ast = *result.GetStats()->GetAst();
             UNIT_ASSERT_VALUES_EQUAL(CountNumberOfCallables(ast, "Take"), 1);
-            UNIT_ASSERT_VALUES_EQUAL(CountNumberOfCallables(ast, "TopSort"), 2);
+            UNIT_ASSERT_VALUES_EQUAL(CountNumberOfCallables(ast, "TopSort"), 1);
 
             result = session.ExecuteQuery(query, NYdb::NQuery::TTxControl::NoTx(), NYdb::NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Execute))
                          .ExtractValueSync();
@@ -2776,8 +2776,8 @@ Y_UNIT_TEST_SUITE(KqpRboYql) {
             UNIT_ASSERT_VALUES_EQUAL(result.GetStatus(), EStatus::SUCCESS);
             auto ast = *result.GetStats()->GetAst();
             UNIT_ASSERT_VALUES_EQUAL(CountNumberOfCallables(ast, "Take"), 1);
-            UNIT_ASSERT_VALUES_EQUAL(CountNumberOfCallables(ast, "TopSort"), 1);
             UNIT_ASSERT_VALUES_EQUAL(CountNumberOfCallables(ast, "ItemsLimit"), 1);
+            UNIT_ASSERT_VALUES_EQUAL(CountNumberOfCallables(ast, "TopSort"), 1);
             UNIT_ASSERT_VALUES_EQUAL(CountNumberOfCallables(ast, "Sorted"), 1);
 
             result = session.ExecuteQuery(query, NYdb::NQuery::TTxControl::NoTx(), NYdb::NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Execute))
@@ -2815,9 +2815,24 @@ Y_UNIT_TEST_SUITE(KqpRboYql) {
         auto schemaResult = dbSession.ExecuteSchemeQuery(schemaQ).GetValueSync();
         UNIT_ASSERT_C(schemaResult.IsSuccess(), schemaResult.GetIssues().ToString());
 
-        std::vector<std::string> queries = {
+        const std::vector<std::string> queries = {
             R"(
-                select sum(t1.a), t1.b from `/Root/t1` as t1 group by t1.b;
+                select sum(t1.a), max(t1.a), t1.b from `/Root/t1` as t1 group by t1.b;
+            )",
+            R"(
+                select sum(t1.a), min(t1.b), t1.b from `/Root/t1` as t1 group by t1.b;
+            )",
+            R"(
+                select count(t1.a), t1.b from `/Root/t1` as t1 group by t1.b;
+            )",
+            R"(
+                select sum(t1.a), max(t1.a) from `/Root/t1` as t1;
+            )",
+            R"(
+                select sum(t1.a), min(t1.b) from `/Root/t1` as t1;
+            )",
+            R"(
+                select count(t1.a) from `/Root/t1` as t1;
             )",
         };
 
