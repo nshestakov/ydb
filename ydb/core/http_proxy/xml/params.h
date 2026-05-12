@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ydb/core/protos/sqs.pb.h>
+#include <ydb/library/actors/http/http.h>
 
 #include <util/generic/map.h>
 #include <util/generic/maybe.h>
@@ -56,5 +57,7 @@ private:
     int Id_;
     int Num_;
 };
+
+TParameters ParseParameters(const NHttp::THttpIncomingRequestPtr& params);
 
 } // namespace NKikimr::NSQS

@@ -7,6 +7,8 @@
 #include "utils.h"
 
 #include <ydb/core/http_proxy/events.h>
+#include <ydb/core/http_proxy/serialization.h>
+#include <ydb/core/http_proxy/xml/params.h>
 #include <ydb/core/protos/grpc_pq_old.pb.h>
 #include <ydb/core/ymq/base/limits.h>
 #include <ydb/core/ymq/error/error.h>
@@ -319,3 +321,29 @@ namespace NKikimr::NSqsTopic::V1 {
         return std::make_unique<TChangeMessageVisibilityBatchActor>(msg);
     }
 } // namespace NKikimr::NSqsTopic::V1
+
+namespace NKikimr::NHttpProxy {
+
+    template<>
+    void DeserializeXml(NHttp::THttpIncomingRequestPtr& request, Ydb::Ymq::V1::ChangeMessageVisibilityRequest& value) {
+        auto params = NSQS::ParseParameters(request);
+    
+        value.set_queue_url(params.QueueUrl.GetRef());
+        value.set_receipt_handle(params.ReceiptHandle.GetRef());
+        value.set_visibility_timeout(params.VisibilityTimeout.GetRef());
+    }
+    
+    template<>
+    void DeserializeXml(NHttp::THttpIncomingRequestPtr& request, Ydb::Ymq::V1::ChangeMessageVisibilityBatchRequest& value) {
+        auto params = NSQS::ParseParameters(request);
+    
+        value.set_queue_url(params.QueueUrl.GetRef());
+        for (const auto& entry : params.BatchEntries) {
+            auto* batch_entry = value.add_entries();
+            batch_entry->set_id(entry.second.Id.GetRef());
+            batch_entry->set_receipt_handle(entry.second.ReceiptHandle.GetRef());
+            batch_entry->set_visibility_timeout(entry.second.VisibilityTimeout.GetRef());
+        }
+    }
+
+} // namespace NKikimr::NHttpProxy

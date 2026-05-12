@@ -24,6 +24,7 @@ SRCS(
 )
 
 PEERDIR(
+    contrib/restricted/nlohmann_json
     ydb/library/grpc/server
     ydb/core/base
     ydb/core/client/server

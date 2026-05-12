@@ -1,6 +1,7 @@
 LIBRARY()
 
 SRCS(
+    params.cpp
     parser.rl6
     types.cpp
     xml.cpp

@@ -53,13 +53,8 @@ void DeserializeCbor(TStringBuf serializedValue, TValue& value)
 }
 
 template<typename TValue>
-void DeserializeXml(TStringBuf serializedValue, TValue& value)
-    requires std::is_base_of_v<NProtoBuf::Message, TValue> {
-    Y_UNUSED(serializedValue);
-    Y_UNUSED(value);
-
-    // TODO: implement XML deserialization
-}
+void DeserializeXml(NHttp::THttpIncomingRequestPtr& request, TValue& value)
+    requires std::is_base_of_v<NProtoBuf::Message, TValue>;
 
 template<typename TValue>
 void Deserialize(THttpRequestContext& context, TValue& value)
@@ -79,7 +74,7 @@ void Deserialize(THttpRequestContext& context, TValue& value)
         DeserializeCbor(context.Request->Body, value);
         break;
     case MIME_XML:
-        DeserializeXml(context.Request->Body, value);
+        DeserializeXml(context.Request, value);
         break;
     default:
         throw NKikimr::NSQS::TSQSException(NKikimr::NSQS::NErrors::MALFORMED_QUERY_STRING) <<

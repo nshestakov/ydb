@@ -13,7 +13,7 @@
 #include <contrib/libs/protobuf/src/google/protobuf/reflection.h>
 
 #include <grpcpp/impl/codegen/config_protobuf.h>
-#include <contrib/restricted/nlohmann_json/include/nlohmann/json.hpp>
+#include <nlohmann/json.hpp>
 
 
 namespace NKikimr::NHttpProxy {
