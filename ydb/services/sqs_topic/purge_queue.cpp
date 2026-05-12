@@ -6,6 +6,8 @@
 #include "utils.h"
 
 #include <ydb/core/http_proxy/events.h>
+#include <ydb/core/http_proxy/serialization.h>
+#include <ydb/core/http_proxy/xml/params.h>
 #include <ydb/core/ymq/error/error.h>
 #include <ydb/services/sqs_topic/queue_url/utils.h>
 #include <ydb/services/sqs_topic/queue_url/holder/queue_url_holder.h>
@@ -146,3 +148,14 @@ namespace NKikimr::NSqsTopic::V1 {
     }
 
 } // namespace NKikimr::NSqsTopic::V1
+
+namespace NKikimr::NHttpProxy {
+
+    template<>
+    void DeserializeXml(NHttp::THttpIncomingRequestPtr& request, Ydb::Ymq::V1::PurgeQueueRequest& value) {
+        auto params = NSQS::ParseParameters(request);
+    
+        value.set_queue_url(params.QueueUrl.GetRef());
+    }
+
+} // namespace NKikimr::NHttpProxy

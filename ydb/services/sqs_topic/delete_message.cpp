@@ -6,6 +6,8 @@
 #include "utils.h"
 
 #include <ydb/core/http_proxy/events.h>
+#include <ydb/core/http_proxy/serialization.h>
+#include <ydb/core/http_proxy/xml/params.h>
 #include <ydb/core/protos/grpc_pq_old.pb.h>
 #include <ydb/core/ymq/base/limits.h>
 #include <ydb/core/ymq/error/error.h>
@@ -296,3 +298,27 @@ namespace NKikimr::NSqsTopic::V1 {
         return std::make_unique<TDeleteMessageBatchActor>(msg);
     }
 } // namespace NKikimr::NSqsTopic::V1
+
+namespace NKikimr::NHttpProxy {
+
+    template<>
+    void DeserializeXml(NHttp::THttpIncomingRequestPtr& request, Ydb::Ymq::V1::DeleteMessageRequest& value) {
+        auto params = NSQS::ParseParameters(request);
+    
+        value.set_queue_url(params.QueueUrl.GetRef());
+        value.set_receipt_handle(params.ReceiptHandle.GetRef());
+    }
+
+    template<>
+    void DeserializeXml(NHttp::THttpIncomingRequestPtr& request, Ydb::Ymq::V1::DeleteMessageBatchRequest& value) {
+        auto params = NSQS::ParseParameters(request);
+    
+        value.set_queue_url(params.QueueUrl.GetRef());
+        for (const auto& entry : params.BatchEntries) {
+            auto* batch_entry = value.add_entries();
+            batch_entry->set_id(entry.second.Id.GetRef());
+            batch_entry->set_receipt_handle(entry.second.ReceiptHandle.GetRef());
+        }
+    }
+
+} // namespace NKikimr::NHttpProxy

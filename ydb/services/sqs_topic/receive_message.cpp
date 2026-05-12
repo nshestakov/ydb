@@ -6,6 +6,8 @@
 #include "utils.h"
 
 #include <ydb/core/http_proxy/events.h>
+#include <ydb/core/http_proxy/serialization.h>
+#include <ydb/core/http_proxy/xml/params.h>
 #include <ydb/core/protos/grpc_pq_old.pb.h>
 #include <ydb/core/ymq/attributes/attributes_md5.h>
 #include <ydb/core/ymq/attributes/attribute_name.h>
@@ -47,8 +49,6 @@ using namespace NKikimrClient;
 namespace NKikimr::NSqsTopic::V1 {
     using namespace NGRpcService;
     using namespace NGRpcProxy::V1;
-
-
 
     class TReceiveMessageActor: public TQueueUrlHolder, public TGrpcActorBase<TReceiveMessageActor, TEvSqsTopicReceiveMessageRequest> {
     protected:
@@ -261,3 +261,25 @@ namespace NKikimr::NSqsTopic::V1 {
     }
 
 } // namespace NKikimr::NSqsTopic::V1
+
+namespace NKikimr::NHttpProxy {
+
+    template<>
+    void DeserializeXml(NHttp::THttpIncomingRequestPtr& request, Ydb::Ymq::V1::ReceiveMessageRequest& value) {
+        auto params = NSQS::ParseParameters(request);
+
+        // TODO
+        // repeated string message_attribute_names = 4;
+        // repeated string message_system_attribute_names = 5;
+        // optional string receive_request_attempt_id = 7;
+    
+        value.set_queue_url(params.QueueUrl.GetRef());
+        value.set_max_number_of_messages(params.MaxNumberOfMessages.GetRef());
+        value.set_wait_time_seconds(params.WaitTimeSeconds.GetRef());
+        value.set_visibility_timeout(params.VisibilityTimeout.GetRef());
+        for (const auto& attribute : params.AttributeNames) {
+            value.add_attribute_names(attribute.second);
+        }
+    }
+
+} // namespace NKikimr::NHttpProxy

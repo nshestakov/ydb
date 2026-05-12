@@ -5,6 +5,8 @@
 #include "utils.h"
 
 #include <ydb/core/http_proxy/events.h>
+#include <ydb/core/http_proxy/serialization.h>
+#include <ydb/core/http_proxy/xml/params.h>
 #include <ydb/core/persqueue/public/list_topics/list_all_topics_actor.h>
 #include <ydb/core/persqueue/events/internal.h>
 #include <ydb/core/protos/grpc_pq_old.pb.h>
@@ -215,3 +217,17 @@ namespace NKikimr::NSqsTopic::V1 {
         return std::make_unique<TListQueuesActor>(msg);
     }
 } // namespace NKikimr::NSqsTopic::V1
+
+namespace NKikimr::NHttpProxy {
+
+    template<>
+    void DeserializeXml(NHttp::THttpIncomingRequestPtr& request, Ydb::Ymq::V1::ListQueuesRequest& value) {
+        auto params = NSQS::ParseParameters(request);
+
+        // TODO
+        // value.set_max_results(params.MaxResults.GetRef());
+        // value.set_next_token(params.NextToken.GetRef());
+        value.set_queue_name_prefix(params.QueueNamePrefix.GetRef());
+    }
+
+} // namespace NKikimr::NHttpProxy

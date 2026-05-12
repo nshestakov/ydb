@@ -5,6 +5,8 @@
 
 #include <ydb/core/base/tablet_pipecache.h>
 #include <ydb/core/http_proxy/events.h>
+#include <ydb/core/http_proxy/serialization.h>
+#include <ydb/core/http_proxy/xml/params.h>
 #include <ydb/core/persqueue/events/global.h>
 #include <ydb/core/persqueue/public/mlp/mlp.h>
 #include <ydb/core/protos/grpc_pq_old.pb.h>
@@ -422,3 +424,40 @@ namespace NKikimr::NSqsTopic::V1 {
         return std::make_unique<TSendMessageBatchActor>(msg);
     }
 } // namespace NKikimr::NSqsTopic::V1
+
+namespace NKikimr::NHttpProxy {
+
+    template<typename TMessage>
+    void AddMessage(TMessage& value, const NSQS::TParameters& params) {
+        value.set_delay_seconds(params.DelaySeconds.GetRef());
+        value.set_message_body(params.MessageBody.GetRef());
+        value.set_message_deduplication_id(params.MessageDeduplicationId.GetRef());
+        value.set_message_group_id(params.MessageGroupId.GetRef());
+        // TODO
+        // for (const auto& attribute : params.MessageAttributes) {
+        //     auto& attributes = *value.mutable_message_attributes();
+        //     attributes[attribute.second.name()] = attribute.second.value();
+        // }
+        // for (const auto& attribute : params.MessageSystemAttributes) {
+        //     value.mutable_message_system_attributes()->insert({attribute.second.name(), attribute.second});
+        // }
+    }
+
+    template<>
+    void DeserializeXml(NHttp::THttpIncomingRequestPtr& request, Ydb::Ymq::V1::SendMessageRequest& value) {
+        auto params = NSQS::ParseParameters(request);
+    
+        value.set_queue_url(params.QueueUrl.GetRef());
+        AddMessage(value, params);
+    }
+
+    template<>
+    void DeserializeXml(NHttp::THttpIncomingRequestPtr& request, Ydb::Ymq::V1::SendMessageBatchRequest& value) {
+        auto params = NSQS::ParseParameters(request);
+    
+        value.set_queue_url(params.QueueUrl.GetRef());
+        for (const auto& entry : params.BatchEntries) {
+            AddMessage(*value.add_entries(), entry.second);
+        }
+    }
+} // namespace NKikimr::NHttpProxy

@@ -7,6 +7,8 @@
 #include "utils.h"
 
 #include <ydb/core/http_proxy/events.h>
+#include <ydb/core/http_proxy/serialization.h>
+#include <ydb/core/http_proxy/xml/params.h>
 #include <ydb/core/protos/grpc_pq_old.pb.h>
 #include <ydb/core/ymq/base/limits.h>
 #include <ydb/core/ymq/error/error.h>
@@ -162,3 +164,18 @@ namespace NKikimr::NSqsTopic::V1 {
         return std::make_unique<TGetQueueUrlActor>(msg);
     }
 } // namespace NKikimr::NSqsTopic::V1
+
+namespace NKikimr::NHttpProxy {
+
+    template<>
+    void DeserializeXml(NHttp::THttpIncomingRequestPtr& request, Ydb::Ymq::V1::GetQueueUrlRequest& value) {
+        auto params = NSQS::ParseParameters(request);
+    
+        value.set_queue_name(params.QueueName.GetRef());
+        // TODO
+        // if (params.QueueOwnerAwsAccountId) {
+        //     value.set_queue_owner_a_w_s_account_id(params.QueueOwnerAwsAccountId.GetRef());
+        // }
+    }
+
+} // namespace NKikimr::NHttpProxy
