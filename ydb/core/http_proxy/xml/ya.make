@@ -1,7 +1,10 @@
 LIBRARY()
 
 SRCS(
-    http.cpp
+    parser.rl6
+    types.cpp
+    xml.cpp
+    xml_builder.cpp
 )
 
 PEERDIR(
@@ -15,11 +18,9 @@ PEERDIR(
     library/cpp/string_utils/quote
     library/cpp/string_utils/url
     ydb/core/protos
-    ydb/core/ymq/actor
-    ydb/core/ymq/base
-    ydb/core/http_proxy/xml
     ydb/library/http_proxy/authorization
     ydb/library/http_proxy/error
+    ydb/core/ymq/base
 )
 
 END()

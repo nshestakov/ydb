@@ -63,6 +63,10 @@ YQL_LAST_ABI_VERSION()
 
 END()
 
+RECURSE(
+    xml
+)
+
 RECURSE_FOR_TESTS(
     ut
 )

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "params.h"
-#include "types.h"
+#include <ydb/core/http_proxy/xml/params.h>
+#include <ydb/core/http_proxy/xml/types.h>
 
 #include <ydb/core/protos/config.pb.h>
 #include <ydb/core/protos/sqs.pb.h>

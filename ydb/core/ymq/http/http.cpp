@@ -1,5 +1,5 @@
 #include "http.h"
-#include "xml.h"
+#include <ydb/core/http_proxy/xml/xml.h>
 
 #include <ydb/library/services/services.pb.h>
 #include <ydb/library/http_proxy/authorization/auth_helpers.h>
