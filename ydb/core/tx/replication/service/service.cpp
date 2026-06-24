@@ -1,4 +1,5 @@
 #include "logging.h"
+#include "master_election.h"
 #include "service.h"
 #include "table_writer.h"
 #include "topic_reader.h"
@@ -8,8 +9,6 @@
 
 #include <ydb/core/base/appdata.h>
 #include <ydb/core/base/path.h>
-#include <ydb/core/base/domain.h>
-#include <ydb/core/base/statestorage.h>
 #include <ydb/core/fq/libs/row_dispatcher/purecalc_compilation/compile_service.h>
 #include <ydb/core/protos/counters_replication.pb.h>
 #include <ydb/core/scheme/scheme_pathid.h>
@@ -534,16 +533,20 @@ class TReplicationService: public TActorBootstrapped<TReplicationService> {
         return LogPrefix.GetRef();
     }
 
-    void RunBoardPublisher() {
+    void RunMasterElection() {
         const auto& tenant = AppData()->TenantName;
+        MasterElection = Register(CreateReplicationMasterElection(SelfId(), tenant));
+    }
 
-        auto* domainInfo = AppData()->DomainsInfo->GetDomainByName(ExtractDomain(tenant));
-        if (!domainInfo) {
-            return PassAway();
-        }
+    void Handle(TEvMasterElectionPrivate::TEvStateUpdated::TPtr& ev) {
+        IsMaster = ev->Get()->IsMaster;
+        MasterNodeId = ev->Get()->MasterNodeId;
+        Peers = ev->Get()->Peers;
 
-        const auto boardPath = MakeDiscoveryPath(tenant);
-        BoardPublisher = Register(CreateBoardPublishActor(boardPath, TString(), SelfId(), 0, true));
+        LOG_I("Master election state"
+            << ": isMaster# " << IsMaster
+            << ", masterNode# " << MasterNodeId
+            << ", peers# " << Peers.size());
     }
 
     void Handle(TEvService::TEvHandshake::TPtr& ev) {
@@ -941,7 +944,7 @@ class TReplicationService: public TActorBootstrapped<TReplicationService> {
     }
 
     void PassAway() override {
-        if (auto actorId = std::exchange(BoardPublisher, {})) {
+        if (auto actorId = std::exchange(MasterElection, {})) {
             Send(actorId, new TEvents::TEvPoison());
         }
 
@@ -967,11 +970,12 @@ public:
 
     void Bootstrap() {
         Become(&TThis::StateWork);
-        RunBoardPublisher();
+        RunMasterElection();
     }
 
     STATEFN(StateWork) {
         switch (ev->GetTypeRewrite()) {
+            hFunc(TEvMasterElectionPrivate::TEvStateUpdated, Handle);
             hFunc(TEvService::TEvHandshake, Handle);
             hFunc(TEvService::TEvRunWorker, Handle);
             hFunc(TEvService::TEvStopWorker, Handle);
@@ -988,7 +992,10 @@ public:
 
 private:
     mutable TMaybe<TString> LogPrefix;
-    TActorId BoardPublisher;
+    TActorId MasterElection;
+    bool IsMaster = false;
+    ui32 MasterNodeId = 0;
+    THashSet<ui32> Peers;
     THashMap<ui64, TSessionInfo> Sessions;
 
     using TYdbProxyKey = std::variant<TString, TConnectionParams>;

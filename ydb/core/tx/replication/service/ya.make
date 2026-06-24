@@ -21,6 +21,7 @@ PEERDIR(
 SRCS(
     base_table_writer.cpp
     json_change_record.cpp
+    master_election.cpp
     service.cpp
     table_writer.cpp
     topic_reader.cpp
