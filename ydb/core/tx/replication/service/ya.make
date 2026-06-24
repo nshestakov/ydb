@@ -42,6 +42,7 @@ END()
 
 RECURSE_FOR_TESTS(
     ut_json_change_record
+    ut_master_election
     ut_table_writer
     ut_topic_reader
     ut_worker
