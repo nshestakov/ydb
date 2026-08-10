@@ -137,3 +137,7 @@ class Workload(unittest.TestCase):
 
         self.pool.stop()
         self.driver.stop()
+        # Stop the shared topic asyncio loop thread before process exit (TSan / Py_FinalizeEx).
+        from ydb._topic_common.common import _shutdown_shared_event_loop
+
+        _shutdown_shared_event_loop()

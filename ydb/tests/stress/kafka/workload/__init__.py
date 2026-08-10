@@ -377,5 +377,9 @@ class Workload(unittest.TestCase):
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.driver is not None:
             self.driver.stop()
+        # Stop the shared topic asyncio loop thread before process exit (TSan / Py_FinalizeEx).
+        from ydb._topic_common.common import _shutdown_shared_event_loop
+
+        _shutdown_shared_event_loop()
         for tmp_dir in self.tmp_dirs:
             shutil.rmtree(tmp_dir)
