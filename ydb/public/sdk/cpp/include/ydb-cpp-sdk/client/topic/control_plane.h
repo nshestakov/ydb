@@ -1080,7 +1080,8 @@ struct TCommitOffsetSettings : public TOperationRequestSettings<TCommitOffsetSet
     FLUENT_SETTING_OPTIONAL(std::string, ReadSessionId);
 };
 
-// Settings for reset offset request.
+// Settings for ResetOffset. Applies independently per partition (not atomic
+// across the topic) and drops any active read session for the consumer.
 struct TResetOffsetSettings : public TOperationRequestSettings<TResetOffsetSettings> {
     TResetOffsetSettings& Earliest() {
         Position_ = EPosition::Earliest;

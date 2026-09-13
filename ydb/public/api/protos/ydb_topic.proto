@@ -806,7 +806,15 @@ message CommitOffsetResult {
 // ResetOffset
 
 
-// Reset committed offsets for a consumer on all topic partitions.
+// Reset committed offsets for a consumer on all topic partitions
+// (including inactive partitions after split/merge).
+//
+// Each partition is updated independently: a successful overall status does not
+// mean every partition was reset, and a failure may still leave some partitions
+// already rewritten. The request is not atomic across partitions.
+//
+// The partition applies the new offset with an empty read session id, which
+// drops any active read session for this consumer on that partition.
 message ResetOffsetRequest {
     Ydb.Operations.OperationParams operation_params = 1;
 
