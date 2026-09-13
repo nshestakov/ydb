@@ -145,6 +145,12 @@ void TPartitionActor::CleanupResources(const TActorContext& ctx)
             AddHostInFlight->BSPipeClient);
         AddHostInFlight.reset();
     }
+    if (RemoveHostInFlight) {
+        NTabletPipe::CloseAndForgetClient(
+            SelfId(),
+            RemoveHostInFlight->BSPipeClient);
+        RemoveHostInFlight.reset();
+    }
 
     GetNbsService()->VhostServer->DetachStorage(GetSocketPath());
 
@@ -363,6 +369,7 @@ TFastPathServicePtr TPartitionActor::CreateFastPathService(
             dbgIndex,
             std::move(ddiskIds),
             std::move(persistentBufferDDiskIds),
+            conn.GetDBGConnectionsConfigGeneration(),
             std::move(transport),
             dbgCountersRoot);
 
@@ -399,14 +406,7 @@ void TPartitionActor::AllocateDDiskBlockGroup(const NActors::TActorContext& ctx)
 {
     CreateBSControllerPipeClient(ctx);
 
-    auto request = std::make_unique<
-        TEvBlobStorage::TEvControllerAllocateDDiskBlockGroup>();
-    request->Record.SetDDiskPoolName(StorageConfig->GetDDiskPoolName());
-    request->Record.SetPersistentBufferDDiskPoolName(
-        StorageConfig->GetPersistentBufferDDiskPoolName());
-
-    // TODO: fill with tablet id
-    request->Record.SetTabletId(TabletID());
+    auto request = MakeAllocateDDiskBlockGroupRequest();
 
     const ui64 blockCount = VolumeConfig.GetPartitions(0).GetBlockCount();
     const ui64 regionsCount =
@@ -420,6 +420,18 @@ void TPartitionActor::AllocateDDiskBlockGroup(const NActors::TActorContext& ctx)
     }
 
     NTabletPipe::SendData(ctx, BSControllerPipeClient, request.release());
+}
+
+std::unique_ptr<TEvBlobStorage::TEvControllerAllocateDDiskBlockGroup>
+TPartitionActor::MakeAllocateDDiskBlockGroupRequest() const
+{
+    auto request = std::make_unique<
+        TEvBlobStorage::TEvControllerAllocateDDiskBlockGroup>();
+    request->Record.SetDDiskPoolName(StorageConfig->GetDDiskPoolName());
+    request->Record.SetPersistentBufferDDiskPoolName(
+        StorageConfig->GetPersistentBufferDDiskPoolName());
+    request->Record.SetTabletId(TabletID());
+    return request;
 }
 
 TString TPartitionActor::GetSocketPath() const
@@ -476,20 +488,28 @@ void TPartitionActor::HandleFastPathServiceReady(
         "%s All DBGs reached initial locked quorum, opening endpoint",
         LogTitle.GetWithTime().c_str());
 
-    // Re-send the BSC request for an add-host in flight at the last restart
-    // (no live add can be in flight this early). BSController is idempotent.
+    // Re-send the BSC request for a membership op in flight at the last
+    // restart (no live op can be in flight this early). Both are idempotent.
     if (AddHostInFlight.has_value()) {
         LOG_INFO(
             ctx,
             NKikimrServices::NBS_PARTITION,
-            "%s Replaying in-flight AddHost dbgId=%lu newHostIndex=%s",
+            "%s Replaying in-flight AddHost dbgId=%lu liveHostCount=%u",
             LogTitle.GetWithTime().c_str(),
             AddHostInFlight->DirectBlockGroupId,
-            PrintHostIndex(AddHostInFlight->NewHostIndex).c_str());
-        SendAllocateDDiskForAddHost(
+            AddHostInFlight->LiveHostCount);
+        SendAllocateDDiskForAddHost(ctx, AddHostInFlight->DirectBlockGroupId);
+    }
+
+    if (RemoveHostInFlight.has_value()) {
+        LOG_INFO(
             ctx,
-            AddHostInFlight->DirectBlockGroupId,
-            AddHostInFlight->NewHostIndex);
+            NKikimrServices::NBS_PARTITION,
+            "%s Replaying in-flight RemoveHost dbgId=%lu ddisk=%s",
+            LogTitle.GetWithTime().c_str(),
+            RemoveHostInFlight->DirectBlockGroupId,
+            RemoveHostInFlight->DDiskId.ShortDebugString().c_str());
+        SendRemoveHostRequest(ctx);
     }
 
     LoadActorAdapter = CreateLoadActorAdapter(ctx.SelfID, FastPathService);
@@ -621,8 +641,10 @@ void TPartitionActor::HandleControllerAllocateDDiskBlockGroupResult(
         ev->Get()->Record.DebugString().data());
 
     // The first allocation response sets up the group; any later one is the
-    // result of an add-host request.
-    if (DDiskBlockGroupAllocated) {
+    // result of the single in-flight membership op (add xor remove).
+    if (RemoveHostInFlight.has_value()) {
+        HandleRemoveHostAllocationResult(ev, ctx);
+    } else if (DDiskBlockGroupAllocated) {
         HandleAddHostAllocationResult(ev, ctx);
     } else {
         HandleInitialAllocationResult(ev, ctx);
@@ -890,6 +912,12 @@ STFUNC(TPartitionActor::StateWork)
             TEvPartitionDirectPrivate::TEvFastPathServiceReady,
             HandleFastPathServiceReady);
         HFunc(TEvPartitionDirectPrivate::TEvAddHostToDBG, HandleAddHostToDBG);
+        HFunc(
+            TEvPartitionDirectPrivate::TEvPersistHostHealth,
+            HandlePersistHostHealth);
+        HFunc(
+            TEvPartitionDirectPrivate::TEvRemoveHostFromDBG,
+            HandleRemoveHostFromDBG);
 
         HFunc(
             TEvPartitionDirectPrivate::TEvFastPathServiceShutdown,
@@ -908,5 +936,69 @@ STFUNC(TPartitionActor::StateWork)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+TAllocationResponse ValidateAllocationResponse(
+    const TEvBlobStorage::TEvControllerAllocateDDiskBlockGroupResult& msg,
+    size_t dbgId,
+    size_t expectedHostCount)
+{
+    const auto& record = msg.Record;
+
+    if (record.GetStatus() != NKikimrProto::EReplyStatus::OK) {
+        return {
+            .Error = MakeError(
+                E_REJECTED,
+                TStringBuilder()
+                    << "BSController error: " << record.GetErrorReason())};
+    }
+    if (record.DirectBlockGroupsSize() != 1) {
+        return {
+            .Error = MakeError(
+                E_REJECTED,
+                TStringBuilder() << "BSController returned "
+                                 << record.DirectBlockGroupsSize()
+                                 << " DirectBlockGroups, expected 1")};
+    }
+
+    const auto& allocated = record.GetDirectBlockGroups(0);
+    if (allocated.GetDirectBlockGroupId() != dbgId) {
+        return {
+            .Error = MakeError(
+                E_REJECTED,
+                "BSController response is for a different DirectBlockGroup")};
+    }
+    if (allocated.GetError()) {
+        return {
+            .Error = MakeError(
+                E_REJECTED,
+                "BSController reported an error for this DirectBlockGroup")};
+    }
+    if (allocated.DDiskIdSize() != expectedHostCount ||
+        allocated.PersistentBufferDDiskIdSize() != expectedHostCount)
+    {
+        return {
+            .Error = MakeError(
+                E_REJECTED,
+                TStringBuilder()
+                    << "BSController returned " << allocated.DDiskIdSize()
+                    << " ddisks / " << allocated.PersistentBufferDDiskIdSize()
+                    << " pbuffers, expected " << expectedHostCount)};
+    }
+
+    return {.Group = &allocated};
+}
+
+size_t LiveHostCount(
+    const ::NYdb::NBS::PartitionDirect::NProto::TDirectBlockGroupConnections&
+        connections)
+{
+    size_t liveCount = 0;
+    for (const auto& connection: connections.GetConnections()) {
+        if (!connection.GetRemovedFromBSC()) {
+            ++liveCount;
+        }
+    }
+    return liveCount;
+}
 
 }   // namespace NYdb::NBS::NBlockStore::NStorage::NPartitionDirect
