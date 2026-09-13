@@ -44,7 +44,7 @@ void TResetOffsetActor::Handle(NDescriber::TEvDescribeTopicsResponse::TPtr& ev) 
 
     auto& topic = topics.begin()->second;
     switch (topic.Status) {
-        case NDescriber::EStatus::SUCCESS: {
+        case NDescriber::EStatus::Success: {
             AFL_ENSURE(topic.Info);
             TopicInfo = topic;
             const auto& config = TopicInfo.Info->Description.GetPQTabletConfig();

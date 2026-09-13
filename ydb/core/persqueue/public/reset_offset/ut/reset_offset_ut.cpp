@@ -108,7 +108,7 @@ ui64 DescribeTabletId(TTopicSdkTestSetup& setup, const TString& topic) {
     auto described = setup.GetRuntime().GrabEdgeEvent<NDescriber::TEvDescribeTopicsResponse>(edge, TDuration::Seconds(30));
     UNIT_ASSERT(described);
     const auto& describedTopic = described->Get()->Topics.begin()->second;
-    UNIT_ASSERT_VALUES_EQUAL(describedTopic.Status, NDescriber::EStatus::SUCCESS);
+    UNIT_ASSERT_VALUES_EQUAL(describedTopic.Status, NDescriber::EStatus::Success);
     UNIT_ASSERT(describedTopic.Info);
     return describedTopic.Info->Description.GetPartitions(0).GetTabletId();
 }
