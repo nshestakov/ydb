@@ -53,7 +53,7 @@ TPQReadService::TPQReadService(const TActorId& schemeCache, const TActorId& newS
 void TPQReadService::Bootstrap(const TActorContext& ctx) {
     HaveClusters = !AppData(ctx)->PQConfig.GetTopicsAreFirstClassCitizen(); // ToDo[migration] - proper condition
     if (HaveClusters) {
-        YDB_LOG_DEBUG_COMP(NKikimrServices::PERSQUEUE_CLUSTER_TRACKER, "TPQReadService: send TEvClusterTracker::TEvSubscribe");
+        LOG_D("send TEvClusterTracker::TEvSubscribe");
 
         ctx.Send(NPQ::NClusterTracker::MakeClusterTrackerID(),
                  new NPQ::NClusterTracker::TEvClusterTracker::TEvSubscribe);
