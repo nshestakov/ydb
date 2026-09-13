@@ -60,14 +60,28 @@ TInstant TPartition::ResetOffsetTimestamp(const NKikimrPQ::TEvResetOffsetRequest
     return timestamp;
 }
 
+ui64 TPartition::GetAcceptedEndOffset() const {
+    ui64 end = GetEndOffset();
+    auto consider = [&](const THead& head) {
+        if (!head.GetBatches().empty()) {
+            end = Max(end, head.GetNextOffset());
+        }
+    };
+    consider(CompactionBlobEncoder.Head);
+    consider(CompactionBlobEncoder.NewHead);
+    consider(BlobEncoder.Head);
+    consider(BlobEncoder.NewHead);
+    return end;
+}
+
 ui64 TPartition::ResolveResetOffset(const NKikimrPQ::TEvResetOffsetRequest& rec) const {
     switch (rec.GetPosition()) {
         case NKikimrPQ::TEvResetOffsetRequest::EARLIEST:
             return GetStartOffset();
         case NKikimrPQ::TEvResetOffsetRequest::LATEST:
-            return GetEndOffset();
+            return GetAcceptedEndOffset();
         default:
-            return GetEndOffset();
+            return GetAcceptedEndOffset();
     }
 }
 
@@ -121,7 +135,11 @@ void TPartition::FinishResetOffset(
 TMaybe<ui64> TPartition::ScanHeadForResetOffset(const THead& head, TInstant timestamp) const {
     for (const auto& batch : head.GetBatches()) {
         TVector<TClientBlob> blobs;
-        batch.UnpackTo(&blobs);
+        if (batch.Packed) {
+            batch.UnpackTo(&blobs);
+        } else {
+            blobs = batch.Blobs;
+        }
         if (auto found = FindFirstOffsetAtOrAfterTimestamp(timestamp, batch.GetOffset(), blobs)) {
             return found;
         }
@@ -178,17 +196,24 @@ TMaybe<ui64> TPartition::ResolveResetOffsetFromWrittenAt(
 
     // Compaction zone holds older offsets than fast-write. Scan it first so the
     // first timestamp match is the earliest qualifying message. Empty compaction
-    // sources fall through to fast-write, including in-memory Head.
+    // sources fall through to fast-write, including in-memory Head and NewHead
+    // (accepted writes not yet synced to Head / HeadKeys).
     if (auto found = scanRefs(compactionRefs)) {
         return found;
     }
     if (auto found = ScanHeadForResetOffset(CompactionBlobEncoder.Head, timestamp)) {
         return found;
     }
+    if (auto found = ScanHeadForResetOffset(CompactionBlobEncoder.NewHead, timestamp)) {
+        return found;
+    }
     if (auto found = scanRefs(fastWriteRefs)) {
         return found;
     }
     if (auto found = ScanHeadForResetOffset(BlobEncoder.Head, timestamp)) {
+        return found;
+    }
+    if (auto found = ScanHeadForResetOffset(BlobEncoder.NewHead, timestamp)) {
         return found;
     }
     return Nothing();
@@ -250,7 +275,7 @@ void TPartition::RequestResetOffsetBlobs(TEvPQ::TEvResetOffsetRequest::TPtr& ev,
             replyCookie,
             partitionId,
             rec.GetConsumer(),
-            found.GetOrElse(GetEndOffset()));
+            found.GetOrElse(GetAcceptedEndOffset()));
         return;
     }
 
@@ -305,7 +330,7 @@ void TPartition::HandleResetOffsetBlobResponse(TEvPQ::TEvBlobResponse::TPtr& ev)
         pending.Cookie,
         pending.PartitionId,
         pending.Consumer,
-        found.GetOrElse(GetEndOffset()));
+        found.GetOrElse(GetAcceptedEndOffset()));
     ProcessResetOffsetPendingEvents();
 }
 

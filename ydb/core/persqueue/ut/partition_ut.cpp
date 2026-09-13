@@ -2416,6 +2416,20 @@ THolder<TEvPQ::TEvBlobResponse> MakeResetOffsetBlobResponse(
     return MakeHolder<TEvPQ::TEvBlobResponse>(request.Cookie, std::move(blobs));
 }
 
+void PutMessagesInNewHead(THead& newHead, ui64 offset, TVector<TClientBlob> messages, bool pack) {
+    std::deque<TClientBlob> blobs(messages.begin(), messages.end());
+    TBatch batch = TBatch::FromBlobs(offset, std::move(blobs));
+    if (pack) {
+        batch.Pack();
+        newHead.PackedSize = batch.GetPackedSize();
+    } else {
+        newHead.PackedSize = 0;
+    }
+    newHead.Offset = offset;
+    newHead.PartNo = 0;
+    newHead.AddBatch(batch);
+}
+
 } // namespace
 
 // FROM_WRITTEN_AT must read a multi-message blob and commit to the first message
@@ -2716,6 +2730,113 @@ Y_UNIT_TEST_F(ResetOffsetFromWrittenAtKafkaBatchIsAtomic, TPartitionFixture)
     runAt(tsBatch, 1, 1);                             // first offset of the batch
     runAt(tsBatch + TDuration::Seconds(1), 2, 4);     // skip whole batch → message after
     runAt(tsAfter + TDuration::Seconds(1), 3, 5);     // after last → EndOffset
+}
+
+// FROM_WRITTEN_AT must see messages that exist only in NewHead (accepted write,
+// not yet synced to Head / HeadKeys). Body is older and Count==1, so it is not
+// read from KV. EndOffset still points at the start of NewHead (persist has
+// not moved it yet); the matching message is the second NewHead blob.
+Y_UNIT_TEST_F(ResetOffsetFromWrittenAtSeesNewHead, TPartitionFixture)
+{
+    const TPartitionId partition{0};
+    const TString client = "client";
+    const TString session = "session";
+
+    auto* actor = CreatePartition({.Partition=partition, .Begin=0, .End=1});
+    auto& cz = TPartitionTestWrapper::CompactionBlobEncoder(*actor);
+    auto& fwz = TPartitionTestWrapper::BlobEncoder(*actor);
+    UNIT_ASSERT_VALUES_EQUAL(cz.DataKeysBody.size(), 1u);
+    UNIT_ASSERT_VALUES_EQUAL(cz.DataKeysBody[0].Key.GetCount(), 1u);
+    cz.DataKeysBody[0].Timestamp = TInstant::Seconds(100);
+
+    CreateSession(client, session);
+
+    UNIT_ASSERT(fwz.Head.GetBatches().empty());
+    UNIT_ASSERT(fwz.HeadKeys.empty());
+    UNIT_ASSERT_VALUES_EQUAL(fwz.NewHeadKey.Size, 0u);
+    UNIT_ASSERT_VALUES_EQUAL(TPartitionTestWrapper::GetEndOffset(*actor), 1u);
+
+    PutMessagesInNewHead(fwz.NewHead, 1, {
+        MakeResetOffsetTestBlob("newhead-old", 1, TInstant::Seconds(100)),
+        MakeResetOffsetTestBlob("newhead-match", 2, TInstant::Seconds(200)),
+    }, /*pack=*/true);
+    UNIT_ASSERT(!fwz.NewHead.GetBatches().empty());
+    UNIT_ASSERT_VALUES_EQUAL(TPartitionTestWrapper::GetEndOffset(*actor), 1u);
+
+    ui32 resetOffsetBlobReads = 0;
+    auto observer = Ctx->Runtime->AddObserver<TEvPQ::TEvBlobRequest>([&](TEvPQ::TEvBlobRequest::TPtr& ev) {
+        if (ev->Get()->Cookie == static_cast<ui64>(TPartition::ERequestCookie::ReadBlobForResetOffset)) {
+            ++resetOffsetBlobReads;
+        }
+    });
+
+    SendEvent(new TEvPQ::TEvResetOffsetRequest(
+        "topic", client, partition.OriginalPartitionId,
+        NKikimrPQ::TEvResetOffsetRequest::FROM_WRITTEN_AT,
+        TInstant::Seconds(150).MilliSeconds(), 1));
+
+    WaitCmdWrite({.UserInfos={{0, {.Consumer=client, .Offset=2}}}});
+    UNIT_ASSERT_VALUES_EQUAL(resetOffsetBlobReads, 0u);
+}
+
+// Live writes land in NewHead with the last batch still unpacked until PackLastBatch.
+Y_UNIT_TEST_F(ResetOffsetFromWrittenAtSeesUnpackedNewHead, TPartitionFixture)
+{
+    const TPartitionId partition{0};
+    const TString client = "client";
+    const TString session = "session";
+
+    auto* actor = CreatePartition({.Partition=partition, .Begin=0, .End=1});
+    auto& cz = TPartitionTestWrapper::CompactionBlobEncoder(*actor);
+    auto& fwz = TPartitionTestWrapper::BlobEncoder(*actor);
+    UNIT_ASSERT_VALUES_EQUAL(cz.DataKeysBody.size(), 1u);
+    cz.DataKeysBody[0].Timestamp = TInstant::Seconds(100);
+
+    CreateSession(client, session);
+
+    PutMessagesInNewHead(fwz.NewHead, 1, {
+        MakeResetOffsetTestBlob("newhead-old", 1, TInstant::Seconds(100)),
+        MakeResetOffsetTestBlob("newhead-match", 2, TInstant::Seconds(200)),
+    }, /*pack=*/false);
+    UNIT_ASSERT(!fwz.NewHead.GetBatches().empty());
+    UNIT_ASSERT(!fwz.NewHead.GetBatches().front().Packed);
+
+    SendEvent(new TEvPQ::TEvResetOffsetRequest(
+        "topic", client, partition.OriginalPartitionId,
+        NKikimrPQ::TEvResetOffsetRequest::FROM_WRITTEN_AT,
+        TInstant::Seconds(150).MilliSeconds(), 1));
+
+    WaitCmdWrite({.UserInfos={{0, {.Consumer=client, .Offset=2}}}});
+}
+
+// Messages in NewHead are older than the target: skip them all, including past
+// EndOffset (still pointing at the start of NewHead).
+Y_UNIT_TEST_F(ResetOffsetFromWrittenAtPastNewHeadUsesAcceptedEnd, TPartitionFixture)
+{
+    const TPartitionId partition{0};
+    const TString client = "client";
+    const TString session = "session";
+
+    auto* actor = CreatePartition({.Partition=partition, .Begin=0, .End=1});
+    auto& cz = TPartitionTestWrapper::CompactionBlobEncoder(*actor);
+    auto& fwz = TPartitionTestWrapper::BlobEncoder(*actor);
+    UNIT_ASSERT_VALUES_EQUAL(cz.DataKeysBody.size(), 1u);
+    cz.DataKeysBody[0].Timestamp = TInstant::Seconds(100);
+
+    CreateSession(client, session);
+
+    PutMessagesInNewHead(fwz.NewHead, 1, {
+        MakeResetOffsetTestBlob("newhead-old-1", 1, TInstant::Seconds(100)),
+        MakeResetOffsetTestBlob("newhead-old-2", 2, TInstant::Seconds(200)),
+    }, /*pack=*/false);
+    UNIT_ASSERT_VALUES_EQUAL(TPartitionTestWrapper::GetEndOffset(*actor), 1u);
+
+    SendEvent(new TEvPQ::TEvResetOffsetRequest(
+        "topic", client, partition.OriginalPartitionId,
+        NKikimrPQ::TEvResetOffsetRequest::FROM_WRITTEN_AT,
+        TInstant::Seconds(250).MilliSeconds(), 1));
+
+    WaitCmdWrite({.UserInfos={{0, {.Consumer=client, .Offset=3}}}});
 }
 
 // Compactification replies with IsInternal=true. Those must not be treated as timestamp-read

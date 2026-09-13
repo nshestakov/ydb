@@ -4647,12 +4647,13 @@ void TPartition::CommitUserAct(TEvPQ::TEvSetClientInfo& act) {
 
     PQ_ENSURE(offset <= (ui64)Max<i64>())("Offset is too big", offset);
 
-    if (offset > GetEndOffset()) {
+    const ui64 maxOffset = act.ResetOffsetReply ? GetAcceptedEndOffset() : GetEndOffset();
+    if (offset > maxOffset) {
         if (strictCommitOffset) {
             TabletCounters.Cumulative()[COUNTER_PQ_SET_CLIENT_OFFSET_ERROR].Increment(1);
             ScheduleReplyError(act,
                             NPersQueue::NErrorCode::SET_OFFSET_ERROR_COMMIT_TO_FUTURE,
-                            TStringBuilder() << "strict commit can't set offset " <<  act.Offset << " to future, consumer " << act.ClientId << ", actual end offset is " << GetEndOffset());
+                            TStringBuilder() << "strict commit can't set offset " <<  act.Offset << " to future, consumer " << act.ClientId << ", actual end offset is " << maxOffset);
 
             return;
         }
@@ -4661,10 +4662,10 @@ void TPartition::CommitUserAct(TEvPQ::TEvSetClientInfo& act) {
             {"topicName", TopicName()},
             {"partition", Partition},
             {"actClientId", act.ClientId},
-            {"endOffset", GetEndOffset()},
+            {"endOffset", maxOffset},
             {"offset", offset}
         );
-        act.Offset = GetEndOffset();
+        act.Offset = maxOffset;
 /*
         TODO:
         TabletCounters.Cumulative()[COUNTER_PQ_SET_CLIENT_OFFSET_ERROR].Increment(1);
