@@ -1080,19 +1080,19 @@ struct TCommitOffsetSettings : public TOperationRequestSettings<TCommitOffsetSet
     FLUENT_SETTING_OPTIONAL(std::string, ReadSessionId);
 };
 
-// Settings for set offsets request.
-struct TSetOffsetsSettings : public TOperationRequestSettings<TSetOffsetsSettings> {
-    TSetOffsetsSettings& Earliest() {
+// Settings for reset offset request.
+struct TResetOffsetSettings : public TOperationRequestSettings<TResetOffsetSettings> {
+    TResetOffsetSettings& Earliest() {
         Position_ = EPosition::Earliest;
         return *this;
     }
 
-    TSetOffsetsSettings& Latest() {
+    TResetOffsetSettings& Latest() {
         Position_ = EPosition::Latest;
         return *this;
     }
 
-    TSetOffsetsSettings& FromWrittenAt(TInstant writtenAt) {
+    TResetOffsetSettings& FromWrittenAt(TInstant writtenAt) {
         Position_ = EPosition::FromWrittenAt;
         FromWrittenAt_ = writtenAt;
         return *this;

@@ -9,18 +9,18 @@
 
 #include <vector>
 
-namespace NKikimr::NPQ::NSetOffsets {
+namespace NKikimr::NPQ::NResetOffset {
 
 enum EEv : ui32 {
-    EvSetOffsetsResult = InternalEventSpaceBegin(NPQ::NEvents::EServices::SET_OFFSETS),
+    EvResetOffsetResult = InternalEventSpaceBegin(NPQ::NEvents::EServices::RESET_OFFSET),
     EvEnd
 };
 
-struct TSetOffsetsSettings {
+struct TResetOffsetSettings {
     TString DatabasePath;
     TString TopicName;
     TString Consumer;
-    NKikimrPQ::TEvSetOffsetsRequest::EPosition Position = NKikimrPQ::TEvSetOffsetsRequest::POSITION_UNSPECIFIED;
+    NKikimrPQ::TEvResetOffsetRequest::EPosition Position = NKikimrPQ::TEvResetOffsetRequest::POSITION_UNSPECIFIED;
     ui64 TimestampMs = 0;
 
     TIntrusiveConstPtr<NACLib::TUserToken> UserToken;
@@ -32,8 +32,8 @@ struct TPartitionResult {
     TString Error;
 };
 
-struct TEvSetOffsetsResult : public NActors::TEventLocal<TEvSetOffsetsResult, EEv::EvSetOffsetsResult> {
-    TEvSetOffsetsResult(
+struct TEvResetOffsetResult : public NActors::TEventLocal<TEvResetOffsetResult, EEv::EvResetOffsetResult> {
+    TEvResetOffsetResult(
         Ydb::StatusIds::StatusCode status = Ydb::StatusIds::SUCCESS,
         TString error = {},
         std::vector<TPartitionResult> partitions = {})
@@ -48,6 +48,6 @@ struct TEvSetOffsetsResult : public NActors::TEventLocal<TEvSetOffsetsResult, EE
     std::vector<TPartitionResult> Partitions;
 };
 
-NActors::IActor* CreateSetOffsetsActor(const NActors::TActorId& parentId, TSetOffsetsSettings&& settings);
+NActors::IActor* CreateResetOffsetActor(const NActors::TActorId& parentId, TResetOffsetSettings&& settings);
 
-} // namespace NKikimr::NPQ::NSetOffsets
+} // namespace NKikimr::NPQ::NResetOffset

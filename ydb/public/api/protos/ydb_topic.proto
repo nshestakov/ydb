@@ -803,11 +803,11 @@ message CommitOffsetResult {
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// SetOffsets
+// ResetOffset
 
 
-// Set committed offsets for a consumer on all topic partitions.
-message SetOffsetsRequest {
+// Reset committed offsets for a consumer on all topic partitions.
+message ResetOffsetRequest {
     Ydb.Operations.OperationParams operation_params = 1;
 
     // Topic path.
@@ -834,14 +834,14 @@ message SetOffsetsRequest {
     }
 }
 
-// Set offsets response sent from server to client.
-message SetOffsetsResponse {
+// Reset offset response sent from server to client.
+message ResetOffsetResponse {
     // Result of request will be inside operation.
     Ydb.Operations.Operation operation = 1;
 }
 
-// Set offsets result message inside SetOffsetsResponse.operation.
-message SetOffsetsResult {
+// Reset offset result message inside ResetOffsetResponse.operation.
+message ResetOffsetResult {
 }
 
 

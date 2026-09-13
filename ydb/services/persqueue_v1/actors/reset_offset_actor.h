@@ -4,6 +4,6 @@
 
 namespace NKikimr::NGRpcProxy::V1 {
 
-NActors::IActor* CreateSetOffsetsActor(NGRpcService::IRequestOpCtx* request);
+NActors::IActor* CreateResetOffsetActor(NGRpcService::IRequestOpCtx* request);
 
 } // namespace NKikimr::NGRpcProxy::V1

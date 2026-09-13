@@ -1,7 +1,7 @@
 LIBRARY()
 
 SRCS(
-    set_offsets.cpp
+    reset_offset.cpp
 )
 
 PEERDIR(

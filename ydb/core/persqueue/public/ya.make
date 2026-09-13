@@ -34,7 +34,7 @@ RECURSE(
     nameresolver
     partition_index_generator
     partition_key_range
-    set_offsets
+    reset_offset
     schema
     write_meta
     cloud_events

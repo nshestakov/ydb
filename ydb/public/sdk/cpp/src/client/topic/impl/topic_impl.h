@@ -289,29 +289,29 @@ public:
             TRpcRequestSettings::Make(settings));
     }
 
-    TAsyncStatus SetOffsets(const std::string& path, const std::string& consumerName,
-        const TSetOffsetsSettings& settings)
+    TAsyncStatus ResetOffset(const std::string& path, const std::string& consumerName,
+        const TResetOffsetSettings& settings)
     {
-        Ydb::Topic::SetOffsetsRequest request = MakeOperationRequest<Ydb::Topic::SetOffsetsRequest>(settings);
+        Ydb::Topic::ResetOffsetRequest request = MakeOperationRequest<Ydb::Topic::ResetOffsetRequest>(settings);
         request.set_path(TStringType{path});
         request.set_consumer(TStringType{consumerName});
         switch (settings.Position_) {
-            case TSetOffsetsSettings::EPosition::Earliest:
+            case TResetOffsetSettings::EPosition::Earliest:
                 request.mutable_earliest();
                 break;
-            case TSetOffsetsSettings::EPosition::Latest:
+            case TResetOffsetSettings::EPosition::Latest:
                 request.mutable_latest();
                 break;
-            case TSetOffsetsSettings::EPosition::FromWrittenAt:
+            case TResetOffsetSettings::EPosition::FromWrittenAt:
                 *request.mutable_from_written_at()->mutable_written_at() =
                     ::google::protobuf::util::TimeUtil::MillisecondsToTimestamp(settings.FromWrittenAt_.MilliSeconds());
                 break;
-            case TSetOffsetsSettings::EPosition::Unspecified:
+            case TResetOffsetSettings::EPosition::Unspecified:
                 break;
         }
-        return RunSimple<Ydb::Topic::V1::TopicService, Ydb::Topic::SetOffsetsRequest, Ydb::Topic::SetOffsetsResponse>(
+        return RunSimple<Ydb::Topic::V1::TopicService, Ydb::Topic::ResetOffsetRequest, Ydb::Topic::ResetOffsetResponse>(
             std::move(request),
-            &Ydb::Topic::V1::TopicService::Stub::AsyncSetOffsets,
+            &Ydb::Topic::V1::TopicService::Stub::AsyncResetOffset,
             TRpcRequestSettings::Make(settings));
     }
 

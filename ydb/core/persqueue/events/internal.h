@@ -246,8 +246,8 @@ struct TEvPQ {
         EvTopicSqsActionMetrics,
         EvProcessBatchKeys,
         EvProcessBatchKeysResult,
-        EvSetOffsetsRequest,
-        EvSetOffsetsResponse,
+        EvResetOffsetRequest,
+        EvResetOffsetResponse,
         EvEnd,
     };
 
@@ -492,13 +492,13 @@ struct TEvPQ {
         std::optional<TString> CommittedMetadata;
         bool IsInternal = false;
         bool AllowInactiveRewind = false;
-        // SetOffsets replies via this, not via Cookie / TEvProxyResponse.
-        struct TSetOffsetsReply {
+        // ResetOffset replies via this, not via Cookie / TEvProxyResponse.
+        struct TResetOffsetReply {
             TActorId Sender;
             ui64 Cookie = 0;
             ui32 PartitionId = 0;
         };
-        std::optional<TSetOffsetsReply> SetOffsetsReply;
+        std::optional<TResetOffsetReply> ResetOffsetReply;
     };
 
 
@@ -1840,14 +1840,14 @@ struct TEvPQ {
         }
     };
 
-    struct TEvSetOffsetsRequest : TEventPB<TEvSetOffsetsRequest, NKikimrPQ::TEvSetOffsetsRequest, EvSetOffsetsRequest> {
-        TEvSetOffsetsRequest() = default;
+    struct TEvResetOffsetRequest : TEventPB<TEvResetOffsetRequest, NKikimrPQ::TEvResetOffsetRequest, EvResetOffsetRequest> {
+        TEvResetOffsetRequest() = default;
 
-        TEvSetOffsetsRequest(
+        TEvResetOffsetRequest(
             const TString& topic,
             const TString& consumer,
             ui32 partitionId,
-            NKikimrPQ::TEvSetOffsetsRequest::EPosition position,
+            NKikimrPQ::TEvResetOffsetRequest::EPosition position,
             ui64 timestampMs = 0,
             ui64 cookie = 0)
         {
@@ -1868,10 +1868,10 @@ struct TEvPQ {
         }
     };
 
-    struct TEvSetOffsetsResponse : TEventPB<TEvSetOffsetsResponse, NKikimrPQ::TEvSetOffsetsResponse, EvSetOffsetsResponse> {
-        TEvSetOffsetsResponse() = default;
+    struct TEvResetOffsetResponse : TEventPB<TEvResetOffsetResponse, NKikimrPQ::TEvResetOffsetResponse, EvResetOffsetResponse> {
+        TEvResetOffsetResponse() = default;
 
-        TEvSetOffsetsResponse(
+        TEvResetOffsetResponse(
             ui32 partitionId,
             Ydb::StatusIds::StatusCode status,
             TString errorMessage = {},

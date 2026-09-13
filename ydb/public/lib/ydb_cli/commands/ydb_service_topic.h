@@ -206,9 +206,9 @@ namespace NYdb::NConsoleClient {
         ui64 Offset_;
     };
 
-    class TCommandTopicConsumerSetOffsets: public TYdbCommand, public TCommandWithTopicName {
+    class TCommandTopicConsumerResetOffset: public TYdbCommand, public TCommandWithTopicName {
     public:
-        TCommandTopicConsumerSetOffsets();
+        TCommandTopicConsumerResetOffset();
         void Config(TConfig& config) override;
         void Parse(TConfig& config) override;
         int Run(TConfig& config) override;

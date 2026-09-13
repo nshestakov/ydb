@@ -27,8 +27,8 @@ void WriteMessages(const TString& topicName, ui32 count) {
     auto session = client.CreateSimpleBlockingWriteSession(
         NYdb::NTopic::TWriteSessionSettings()
             .Path(topicName)
-            .ProducerId("cli-set-offsets-ut")
-            .MessageGroupId("cli-set-offsets-ut"));
+            .ProducerId("cli-reset-offset-ut")
+            .MessageGroupId("cli-reset-offset-ut"));
     for (ui32 i = 0; i < count; ++i) {
         UNIT_ASSERT(session->Write(TStringBuilder() << "msg-" << i));
     }
@@ -49,7 +49,7 @@ ui64 GetCommittedOffset(const TString& topicName, const TString& consumerName, u
     return stats->GetCommittedOffset();
 }
 
-TString ExecSetOffsets(
+TString ExecResetOffset(
     const TString& topicName,
     const TString& consumerOpt,
     const TString& consumerName,
@@ -57,7 +57,7 @@ TString ExecSetOffsets(
     bool checkExitCode = true)
 {
     TList<TString> cmd = {
-        "topic", "consumer", "offset", "set",
+        "topic", "consumer", "offset", "reset",
         consumerOpt, consumerName,
         "--position", position,
         topicName,
@@ -76,9 +76,9 @@ void ExpectExecFails(const TList<TString>& cmd) {
 
 } // namespace
 
-Y_UNIT_TEST_SUITE(YdbTopicSetOffsets) {
+Y_UNIT_TEST_SUITE(YdbTopicResetOffset) {
 
-Y_UNIT_TEST_F(SetOffsetsShortConsumerFlagEarliest, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetShortConsumerFlagEarliest, TSupportedCodecsFixture) {
     const TString topicName = GetTopicName();
     const TString consumerName = GetConsumerName();
 
@@ -87,15 +87,15 @@ Y_UNIT_TEST_F(SetOffsetsShortConsumerFlagEarliest, TSupportedCodecsFixture) {
     WriteMessages(topicName, 2);
 
     UNIT_ASSERT_STRING_CONTAINS(
-        ExecSetOffsets(topicName, "--consumer", consumerName, "latest"), "OK");
+        ExecResetOffset(topicName, "--consumer", consumerName, "latest"), "OK");
     UNIT_ASSERT_VALUES_EQUAL(GetCommittedOffset(topicName, consumerName), 2);
 
-    TString output = ExecSetOffsets(topicName, "-c", consumerName, "earliest");
+    TString output = ExecResetOffset(topicName, "-c", consumerName, "earliest");
     UNIT_ASSERT_STRING_CONTAINS(output, "OK");
     UNIT_ASSERT_VALUES_EQUAL(GetCommittedOffset(topicName, consumerName), 0);
 }
 
-Y_UNIT_TEST_F(SetOffsetsShortConsumerFlagTimestampPast, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetShortConsumerFlagTimestampPast, TSupportedCodecsFixture) {
     const TString topicName = GetTopicName();
     const TString consumerName = GetConsumerName();
 
@@ -104,37 +104,37 @@ Y_UNIT_TEST_F(SetOffsetsShortConsumerFlagTimestampPast, TSupportedCodecsFixture)
     WriteMessages(topicName, 2);
 
     UNIT_ASSERT_STRING_CONTAINS(
-        ExecSetOffsets(topicName, "-c", consumerName, "latest"), "OK");
+        ExecResetOffset(topicName, "-c", consumerName, "latest"), "OK");
     UNIT_ASSERT_VALUES_EQUAL(GetCommittedOffset(topicName, consumerName), 2);
 
-    TString output = ExecSetOffsets(topicName, "-c", consumerName, "1970-01-01T00:00:00Z");
+    TString output = ExecResetOffset(topicName, "-c", consumerName, "1970-01-01T00:00:00Z");
     UNIT_ASSERT_STRING_CONTAINS(output, "OK");
     UNIT_ASSERT_VALUES_EQUAL(GetCommittedOffset(topicName, consumerName), 0);
 }
 
-Y_UNIT_TEST_F(SetOffsetsEarliestPrintsOk, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetEarliestPrintsOk, TSupportedCodecsFixture) {
     const TString topicName = GetTopicName();
     const TString consumerName = GetConsumerName();
 
     YdbTopicCreate(topicName);
     YdbTopicConsumerAdd(topicName, consumerName);
 
-    TString output = ExecSetOffsets(topicName, "--consumer", consumerName, "earliest");
+    TString output = ExecResetOffset(topicName, "--consumer", consumerName, "earliest");
     UNIT_ASSERT_STRING_CONTAINS(output, "OK");
 }
 
-Y_UNIT_TEST_F(SetOffsetsLatestPrintsOk, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetLatestPrintsOk, TSupportedCodecsFixture) {
     const TString topicName = GetTopicName();
     const TString consumerName = GetConsumerName();
 
     YdbTopicCreate(topicName);
     YdbTopicConsumerAdd(topicName, consumerName);
 
-    TString output = ExecSetOffsets(topicName, "--consumer", consumerName, "latest");
+    TString output = ExecResetOffset(topicName, "--consumer", consumerName, "latest");
     UNIT_ASSERT_STRING_CONTAINS(output, "OK");
 }
 
-Y_UNIT_TEST_F(SetOffsetsShortConsumerFlag, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetShortConsumerFlag, TSupportedCodecsFixture) {
     const TString topicName = GetTopicName();
     const TString consumerName = GetConsumerName();
 
@@ -142,12 +142,12 @@ Y_UNIT_TEST_F(SetOffsetsShortConsumerFlag, TSupportedCodecsFixture) {
     YdbTopicConsumerAdd(topicName, consumerName);
     WriteMessages(topicName, 2);
 
-    TString output = ExecSetOffsets(topicName, "-c", consumerName, "latest");
+    TString output = ExecResetOffset(topicName, "-c", consumerName, "latest");
     UNIT_ASSERT_STRING_CONTAINS(output, "OK");
     UNIT_ASSERT_VALUES_EQUAL(GetCommittedOffset(topicName, consumerName), 2);
 }
 
-Y_UNIT_TEST_F(SetOffsetsEarliestAndLatestMoveCommitted, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetEarliestAndLatestMoveCommitted, TSupportedCodecsFixture) {
     const TString topicName = GetTopicName();
     const TString consumerName = GetConsumerName();
 
@@ -156,15 +156,15 @@ Y_UNIT_TEST_F(SetOffsetsEarliestAndLatestMoveCommitted, TSupportedCodecsFixture)
     WriteMessages(topicName, 3);
 
     UNIT_ASSERT_STRING_CONTAINS(
-        ExecSetOffsets(topicName, "--consumer", consumerName, "latest"), "OK");
+        ExecResetOffset(topicName, "--consumer", consumerName, "latest"), "OK");
     UNIT_ASSERT_VALUES_EQUAL(GetCommittedOffset(topicName, consumerName), 3);
 
     UNIT_ASSERT_STRING_CONTAINS(
-        ExecSetOffsets(topicName, "--consumer", consumerName, "earliest"), "OK");
+        ExecResetOffset(topicName, "--consumer", consumerName, "earliest"), "OK");
     UNIT_ASSERT_VALUES_EQUAL(GetCommittedOffset(topicName, consumerName), 0);
 }
 
-Y_UNIT_TEST_F(SetOffsetsTimestampIsoFutureGoesToEnd, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetTimestampIsoFutureGoesToEnd, TSupportedCodecsFixture) {
     const TString topicName = GetTopicName();
     const TString consumerName = GetConsumerName();
 
@@ -172,13 +172,13 @@ Y_UNIT_TEST_F(SetOffsetsTimestampIsoFutureGoesToEnd, TSupportedCodecsFixture) {
     YdbTopicConsumerAdd(topicName, consumerName);
     WriteMessages(topicName, 2);
 
-    TString output = ExecSetOffsets(
+    TString output = ExecResetOffset(
         topicName, "--consumer", consumerName, "2099-01-01T00:00:00Z");
     UNIT_ASSERT_STRING_CONTAINS(output, "OK");
     UNIT_ASSERT_VALUES_EQUAL(GetCommittedOffset(topicName, consumerName), 2);
 }
 
-Y_UNIT_TEST_F(SetOffsetsTimestampUnixSecondsFutureGoesToEnd, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetTimestampUnixSecondsFutureGoesToEnd, TSupportedCodecsFixture) {
     const TString topicName = GetTopicName();
     const TString consumerName = GetConsumerName();
 
@@ -187,12 +187,12 @@ Y_UNIT_TEST_F(SetOffsetsTimestampUnixSecondsFutureGoesToEnd, TSupportedCodecsFix
     WriteMessages(topicName, 2);
 
     // Far-future unix seconds (same semantics as ISO future).
-    TString output = ExecSetOffsets(topicName, "--consumer", consumerName, "4102444800");
+    TString output = ExecResetOffset(topicName, "--consumer", consumerName, "4102444800");
     UNIT_ASSERT_STRING_CONTAINS(output, "OK");
     UNIT_ASSERT_VALUES_EQUAL(GetCommittedOffset(topicName, consumerName), 2);
 }
 
-Y_UNIT_TEST_F(SetOffsetsTimestampIsoPastGoesToStart, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetTimestampIsoPastGoesToStart, TSupportedCodecsFixture) {
     const TString topicName = GetTopicName();
     const TString consumerName = GetConsumerName();
 
@@ -201,16 +201,16 @@ Y_UNIT_TEST_F(SetOffsetsTimestampIsoPastGoesToStart, TSupportedCodecsFixture) {
     WriteMessages(topicName, 2);
 
     UNIT_ASSERT_STRING_CONTAINS(
-        ExecSetOffsets(topicName, "--consumer", consumerName, "latest"), "OK");
+        ExecResetOffset(topicName, "--consumer", consumerName, "latest"), "OK");
     UNIT_ASSERT_VALUES_EQUAL(GetCommittedOffset(topicName, consumerName), 2);
 
-    TString output = ExecSetOffsets(
+    TString output = ExecResetOffset(
         topicName, "--consumer", consumerName, "1970-01-01T00:00:00Z");
     UNIT_ASSERT_STRING_CONTAINS(output, "OK");
     UNIT_ASSERT_VALUES_EQUAL(GetCommittedOffset(topicName, consumerName), 0);
 }
 
-Y_UNIT_TEST_F(SetOffsetsTimestampUnixSecondsPastGoesToStart, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetTimestampUnixSecondsPastGoesToStart, TSupportedCodecsFixture) {
     const TString topicName = GetTopicName();
     const TString consumerName = GetConsumerName();
 
@@ -219,20 +219,20 @@ Y_UNIT_TEST_F(SetOffsetsTimestampUnixSecondsPastGoesToStart, TSupportedCodecsFix
     WriteMessages(topicName, 2);
 
     UNIT_ASSERT_STRING_CONTAINS(
-        ExecSetOffsets(topicName, "--consumer", consumerName, "latest"), "OK");
+        ExecResetOffset(topicName, "--consumer", consumerName, "latest"), "OK");
     UNIT_ASSERT_VALUES_EQUAL(GetCommittedOffset(topicName, consumerName), 2);
 
-    TString output = ExecSetOffsets(topicName, "--consumer", consumerName, "1");
+    TString output = ExecResetOffset(topicName, "--consumer", consumerName, "1");
     UNIT_ASSERT_STRING_CONTAINS(output, "OK");
     UNIT_ASSERT_VALUES_EQUAL(GetCommittedOffset(topicName, consumerName), 0);
 }
 
-Y_UNIT_TEST_F(SetOffsetsMissingConsumerPrintsIssues, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetMissingConsumerPrintsIssues, TSupportedCodecsFixture) {
     const TString topicName = GetTopicName();
     YdbTopicCreate(topicName);
 
     try {
-        ExecSetOffsets(topicName, "--consumer", "missing-consumer", "earliest");
+        ExecResetOffset(topicName, "--consumer", "missing-consumer", "earliest");
         UNIT_ASSERT_C(false, "expected non-zero exit code");
     } catch (const yexception& e) {
         const TString text = TString(e.what());
@@ -242,48 +242,48 @@ Y_UNIT_TEST_F(SetOffsetsMissingConsumerPrintsIssues, TSupportedCodecsFixture) {
     }
 }
 
-Y_UNIT_TEST_F(SetOffsetsMissingTopicFails, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetMissingTopicFails, TSupportedCodecsFixture) {
     ExpectExecFails({
-        "topic", "consumer", "offset", "set",
+        "topic", "consumer", "offset", "reset",
         "--consumer", GetConsumerName(),
         "--position", "earliest",
-        "no-such-topic-for-set-offsets",
+        "no-such-topic-for-reset-offset",
     });
 }
 
-Y_UNIT_TEST_F(SetOffsetsMissingPositionFails, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetMissingPositionFails, TSupportedCodecsFixture) {
     const TString topicName = GetTopicName();
     const TString consumerName = GetConsumerName();
     YdbTopicCreate(topicName);
     YdbTopicConsumerAdd(topicName, consumerName);
 
     ExpectExecFails({
-        "topic", "consumer", "offset", "set",
+        "topic", "consumer", "offset", "reset",
         "--consumer", consumerName,
         topicName,
     });
 }
 
-Y_UNIT_TEST_F(SetOffsetsMissingConsumerOptionFails, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetMissingConsumerOptionFails, TSupportedCodecsFixture) {
     const TString topicName = GetTopicName();
     YdbTopicCreate(topicName);
 
     ExpectExecFails({
-        "topic", "consumer", "offset", "set",
+        "topic", "consumer", "offset", "reset",
         "--position", "earliest",
         topicName,
     });
 }
 
-Y_UNIT_TEST_F(SetOffsetsMissingTopicArgFails, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetMissingTopicArgFails, TSupportedCodecsFixture) {
     ExpectExecFails({
-        "topic", "consumer", "offset", "set",
+        "topic", "consumer", "offset", "reset",
         "--consumer", "c",
         "--position", "earliest",
     });
 }
 
-Y_UNIT_TEST_F(SetOffsetsInvalidPositionFails, TSupportedCodecsFixture) {
+Y_UNIT_TEST_F(ResetOffsetInvalidPositionFails, TSupportedCodecsFixture) {
     const TString topicName = GetTopicName();
     const TString consumerName = GetConsumerName();
 
@@ -291,7 +291,7 @@ Y_UNIT_TEST_F(SetOffsetsInvalidPositionFails, TSupportedCodecsFixture) {
     YdbTopicConsumerAdd(topicName, consumerName);
 
     try {
-        ExecSetOffsets(topicName, "--consumer", consumerName, "not-a-position");
+        ExecResetOffset(topicName, "--consumer", consumerName, "not-a-position");
         UNIT_ASSERT_C(false, "expected non-zero exit code");
     } catch (const yexception& e) {
         const TString text = TString(e.what());
